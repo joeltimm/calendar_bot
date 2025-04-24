@@ -1,19 +1,23 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.egg-info/
+*.egg
+*.pyo
+*.pyd
 
-# Virtual environment
+# Environments
 venv/
+.env
 
-# Tokens or credentials
+# Tokens and secrets
 token.json
+credentials.json
 
-# Log files
+# Logs
 *.log
+webhook_debug.log
+debug.log
 
-# OS-specific files
+# System files
 .DS_Store
-Thumbs.db
-credentials.json
-credentials.json

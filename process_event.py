@@ -1,11 +1,21 @@
 import json
 import os
+import logging
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 INVITE_EMAIL = 'joelandtaylor@gmail.com'
 PROCESSED_FILE = 'processed_events.json'
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("calendar_bot.log"),
+        logging.StreamHandler()
+    ]
+)
 
 def load_processed():
     if os.path.exists(PROCESSED_FILE):
@@ -23,14 +33,13 @@ def handle_event(event_id):
 
     event = service.events().get(calendarId='primary', eventId=event_id).execute()
 
-    # Skip if already invited
     attendees = event.get('attendees', [])
     if any(att.get('email') == INVITE_EMAIL for att in attendees):
-        print(f"{INVITE_EMAIL} already invited.")
+        logging.info(f"{INVITE_EMAIL} already invited to event: {event.get('summary')}")
         return
 
     attendees.append({'email': INVITE_EMAIL})
     event['attendees'] = attendees
 
     updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
-    print(f"Invited {INVITE_EMAIL} to: {updated_event.get('summary')}")
+    logging.info(f"Invited {INVITE_EMAIL} to: {updated_event.get('summary')}")

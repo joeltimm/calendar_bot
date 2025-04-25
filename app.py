@@ -1,4 +1,5 @@
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, request, Response
 from process_event import handle_event, load_processed, save_processed
 from google_utils import build_calendar_service
@@ -6,11 +7,14 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from email_utils import send_error_email
 from tenacity import retry, wait_exponential, stop_after_attempt
+import atexit
 import os
+import sys
 
 # --- Load Environment Variables ---
 load_dotenv()
 PROCESSED_FILE = os.getenv("PROCESSED_FILE", "processed_events.json")
+POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "15"))
 
 # --- Config Flags ---
 ENABLE_AUTO_INVITE = os.getenv("ENABLE_AUTO_INVITE", "true").lower() == "true"
@@ -61,10 +65,9 @@ def fetch_recent_events(service):
         send_error_email(f"Google Calendar API failure in fetch_recent_events:\n\n{e}")
         raise
 
-# --- Webhook Route ---
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    logging.info("📩 Webhook received!")
+# --- Polling Job for Missed Events ---
+def poll_calendar():
+    logging.info("⏱️ Running scheduled poll...")
     try:
         service = build_calendar_service()
         events = fetch_recent_events(service)
@@ -80,26 +83,45 @@ def webhook():
                 handle_event(eid)
                 processed_ids.add(eid)
             else:
-                logging.info(f"⏩ Skipping already processed: {eid}")
+                logging.debug(f"⏩ Skipping already processed: {eid}")
 
         save_processed(processed_ids)
         logging.info("💾 Updated processed event list.")
-
     except Exception as e:
-        # Log locally
-        logging.error(f"❌ ERROR in webhook: {e}", exc_info=True)
-        # Send email notification
-        subject = "Calendar Bot Error"
-        body = f"An error occurred in the webhook handler:\n\n{e}"
-        send_error_email(subject, body)
+        logging.error(f"❌ Error in poll_calendar: {e}", exc_info=True)
+        send_error_email("Calendar Bot Polling Error", str(e))
 
+# --- APScheduler Setup ---
+scheduler = BackgroundScheduler()
+scheduler.add_job(poll_calendar, 'interval', minutes=POLL_INTERVAL_MINUTES)
+scheduler.start()
+# atexit.register(lambda: scheduler.shutdown())
+
+# --- Webhook Route ---
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    logging.info("📩 Webhook received!")
+    poll_calendar()
     return Response("OK", status=200)
 
 @app.route('/health', methods=['GET'])
 def health():
     return Response("OK", status=200)
 
+# --- Only run once (not on reload) ---
+if os.getenv("WERKZEUG_RUN_MAIN") != "true":
+    logging.info("🧠 Main process started (no reloader).")
+
 # --- Run the Flask App ---
 if __name__ == "__main__":
     logging.info("🚦 Flask app running at http://0.0.0.0:5000")
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+
+import sys
+def log_unhandled_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logging.error("💥 Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = log_unhandled_exception

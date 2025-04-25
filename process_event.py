@@ -1,13 +1,18 @@
 import json
 import os
 import logging
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from google_utils import build_calendar_service
+from dotenv import load_dotenv
+from googleapiclient.errors import HttpError
 
+# --- Load Environment Variables ---
+load_dotenv()
 SCOPES = ['https://www.googleapis.com/auth/calendar']
-INVITE_EMAIL = 'joelandtaylor@gmail.com'
-PROCESSED_FILE = 'processed_events.json'
+INVITE_EMAIL = os.getenv('INVITE_EMAIL')
+PROCESSED_FILE = os.getenv('PROCESSED_FILE', 'processed_events.json')
 
+# --- Logging Setup ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -17,6 +22,7 @@ logging.basicConfig(
     ]
 )
 
+# --- Load/Save Processed Event IDs ---
 def load_processed():
     if os.path.exists(PROCESSED_FILE):
         with open(PROCESSED_FILE, 'r') as f:
@@ -27,9 +33,15 @@ def save_processed(event_ids):
     with open(PROCESSED_FILE, 'w') as f:
         json.dump(list(event_ids), f)
 
+# --- Retry Decorator for API Calls ---
+@retry(
+    retry=retry_if_exception_type(HttpError),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(5),
+    reraise=True
+)
 def handle_event(event_id):
-    creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    service = build('calendar', 'v3', credentials=creds)
+    service = build_calendar_service()
 
     event = service.events().get(calendarId='primary', eventId=event_id).execute()
 
@@ -42,4 +54,4 @@ def handle_event(event_id):
     event['attendees'] = attendees
 
     updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
-    logging.info(f"Invited {INVITE_EMAIL} to: {updated_event.get('summary')}")
+    logging.info(f"✅ Invited {INVITE_EMAIL} to: {updated_event.get('summary')}")

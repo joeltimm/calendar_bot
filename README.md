@@ -18,27 +18,27 @@ A powerful automation script that listens for Google Calendar push notifications
 - 🧠 Modular design: reusable logic for credential handling, event processing, email sending
 - 🖥️ systemd integration for persistent deployment
 - 🌐 LocalTunnel support for webhook development
+- 🧱 Runs with Gunicorn WSGI server in production mode
+- 🛑 Detects and prevents port conflict errors with automatic restart
 
 ---
 
 ## 📁 Project Structure
 
-calendar_bot/ 
-├── app.py # Flask webhook server and event handler 
-├── process_event.py # Logic to invite attendees and track processed events 
-├── google_utils.py # Shared logic to authenticate and build the calendar service 
-├── email_utils.py # Email notification helper (SMTP + OAuth2) 
-├── requirements.txt # Python dependencies 
-├── token.json # OAuth token from Google Calendar API 
-├── gmail_token.json # Gmail OAuth token (for email alerts) 
-├── .env # Configurable environment variables 
-├── calendar_bot.log # Timestamped logs 
-├── processed_events.json # Local storage for processed event IDs 
-└── README.md # This file
-
+calendar_bot/  
+├── app.py                  # Flask webhook server and event handler  
+├── process_event.py        # Logic to invite attendees and track processed events  
+├── google_utils.py         # Shared logic to authenticate and build the calendar service  
+├── email_utils.py          # Email notification helper (SMTP + OAuth2)  
+├── requirements.txt        # Python dependencies  
+├── token.json              # OAuth token from Google Calendar API  
+├── gmail_token.json        # Gmail OAuth token (for email alerts)  
+├── .env                    # Configurable environment variables  
+├── calendar_bot.log        # Timestamped logs  
+├── processed_events.json   # Local storage for processed event IDs  
+└── README.md               # This file  
 
 ---
-
 
 ## 🔧 Configuration
 
@@ -59,36 +59,57 @@ EMAIL_TOKEN_FILE=gmail_token.json
 
     Enable the Google Calendar API and Gmail API
 
-    Download credentials.json and run the OAuth flow to generate token.json and gmail_token.json
+    Download credentials.json and run the OAuth flow to generate:
+
+        token.json (Calendar)
+
+        gmail_token.json (SMTP)
 
 ▶️ Running the App
-
-Locally (for testing):
+Locally (for development & debugging)
 
 python3 app.py
 
-As a systemd service (for deployment):
+⚠️ Flask's development server will show this warning:
+
+WARNING: This is a development server. Do not use it in a production deployment.
+
+🖥️ As a systemd service (for production)
+
+Recommended: Use Gunicorn (production-grade WSGI server)
+1. Create a systemd service file:
 
 # /etc/systemd/system/calendar_bot.service
 [Unit]
-Description=Google Calendar Bot
+Description=Google Calendar Bot (Gunicorn)
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /home/youruser/calendar_bot/app.py
+ExecStart=/home/youruser/calendar_bot/venv/bin/gunicorn -b 0.0.0.0:5000 app:app
 WorkingDirectory=/home/youruser/calendar_bot
 Restart=always
+RestartSec=5
 User=youruser
-Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/home/youruser/calendar_bot/venv/bin"
 
 [Install]
 WantedBy=multi-user.target
 
-Then enable and start the service:
+    Update paths and User= as appropriate.
+
+2. Enable and start the service:
 
 sudo systemctl daemon-reexec
 sudo systemctl enable calendar_bot
 sudo systemctl start calendar_bot
+
+Check status:
+
+sudo systemctl status calendar_bot
+
+Watch logs:
+
+journalctl -u calendar_bot -f
 
 🌐 Webhook Testing with LocalTunnel
 
@@ -113,6 +134,7 @@ pip install -r requirements.txt
 Minimal requirements.txt:
 
 Flask
+gunicorn
 google-api-python-client
 google-auth
 google-auth-oauthlib
@@ -121,4 +143,8 @@ tenacity
 
 🔭 Future Improvements
 
-    ⏱️ Schedule-based polling
+    ⏱️ Schedule-based polling as a fallback
+
+    🔐 Webhook validation for security
+
+    🐳 Docker container support

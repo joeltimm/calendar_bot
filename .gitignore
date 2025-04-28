@@ -9,15 +9,19 @@ __pycache__/
 # Environments
 venv/
 .env
+start_bot.sh
 
 # Tokens and secrets
 token.json
 credentials.json
+gmail_credentials.json
+gmail_token.json
 
 # Logs
 *.log
 webhook_debug.log
 debug.log
+processed_events.json
 
 # System files
 .DS_Store

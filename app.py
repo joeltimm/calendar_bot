@@ -1,15 +1,20 @@
+import sys, os
+
+# Add the shared 'common' folder to sys.path
+sys.path.insert(0, os.path.expanduser('/home/joel/common'))
+
+from common.gmail_auth import load_gmail_credentials
+
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, request, Response
-from process_event import handle_event, load_processed, save_processed
-from google_utils import build_calendar_service
+from utils.process_event import handle_event, load_processed, save_processed
+from utils.google_utils import build_calendar_service
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from email_utils import send_error_email
+from utils.email_utils import send_error_email
 from tenacity import retry, wait_exponential, stop_after_attempt
 import atexit
-import os
-import sys
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -47,6 +52,15 @@ except Exception as e:
     logging.error(f"❌ Failed to load processed events: {e}")
     processed_ids = set()
 
+# --- Global Exception Handler Setup ---
+def log_unhandled_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logging.error("💥 Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = log_unhandled_exception
+
 # --- Helper: Fetch Recent Events with Retry ---
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3))
 def fetch_recent_events(service):
@@ -62,7 +76,7 @@ def fetch_recent_events(service):
         return events_result.get('items', [])
     except Exception as e:
         logging.error("❌ Failed to fetch recent events", exc_info=True)
-        send_error_email(f"Google Calendar API failure in fetch_recent_events:\n\n{e}")
+        send_error_email("Google Calendar API failure in fetch_recent_events", str(e))
         raise
 
 # --- Polling Job for Missed Events ---
@@ -95,7 +109,7 @@ def poll_calendar():
 scheduler = BackgroundScheduler()
 scheduler.add_job(poll_calendar, 'interval', minutes=POLL_INTERVAL_MINUTES)
 scheduler.start()
-# atexit.register(lambda: scheduler.shutdown())
+# atexit.register(lambda: scheduler.shutdown())  # Optional, only if you want clean exit
 
 # --- Webhook Route ---
 @app.route('/webhook', methods=['POST'])
@@ -116,12 +130,3 @@ if os.getenv("WERKZEUG_RUN_MAIN") != "true":
 if __name__ == "__main__":
     logging.info("🚦 Flask app running at http://0.0.0.0:5000")
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
-
-import sys
-def log_unhandled_exception(exc_type, exc_value, exc_traceback):
-    if issubclass(exc_type, KeyboardInterrupt):
-        sys.__excepthook__(exc_type, exc_value, exc_traceback)
-        return
-    logging.error("💥 Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
-
-sys.excepthook = log_unhandled_exception

@@ -4,6 +4,7 @@ from email.mime.multipart import MIMEMultipart
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from dotenv import load_dotenv
+from pathlib import Path
 import os
 import base64
 import logging
@@ -15,8 +16,11 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 TO_EMAIL = os.getenv("TO_EMAIL")
 TOKEN_FILE = os.getenv("EMAIL_TOKEN_FILE", "gmail_token.json")
 
+SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+
 def get_access_token():
-    creds = Credentials.from_authorized_user_file(TOKEN_FILE, scopes=["https://www.googleapis.com/auth/gmail.send"])
+    token_path = Path(__file__).resolve().parents[1] / "auth" / "gmail_token.json"
+    creds = Credentials.from_authorized_user_file(token_path, SCOPES)
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
     return creds.token

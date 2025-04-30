@@ -2,7 +2,7 @@ import json
 import os
 import logging
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
-from google_utils import build_calendar_service
+from utils.google_utils import build_calendar_service
 from dotenv import load_dotenv
 from googleapiclient.errors import HttpError
 

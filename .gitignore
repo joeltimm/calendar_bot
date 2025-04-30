@@ -6,22 +6,28 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Environments
+# Virtual environments
 venv/
 .env
-start_bot.sh
+.pytest_cache/
 
-# Tokens and secrets
-token.json
-credentials.json
-gmail_credentials.json
-gmail_token.json
+# Auth tokens and credentials
+auth/token.json
+auth/credentials.json
+auth/gmail_credentials.json
+auth/gmail_token.json
 
 # Logs
+logs/
 *.log
 webhook_debug.log
 debug.log
+
+# Processed events tracking
 processed_events.json
 
-# System files
+# Shell scripts (optional if private/local)
+start_bot.sh
+
+# macOS system files
 .DS_Store

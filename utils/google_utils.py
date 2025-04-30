@@ -7,7 +7,7 @@ SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def load_credentials():
     logging.info("🔐 Loading credentials...")
-    token_path = Path(__file__).resolve().parent[1] / "auth" / "token.json"
+    token_path = Path(__file__).resolve().parents[1] / "auth" / "token.json"
     return Credentials.from_authorized_user_file(token_path, SCOPES)
 
 def build_calendar_service():

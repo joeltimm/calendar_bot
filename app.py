@@ -3,9 +3,8 @@ import sys, os
 # Add the shared 'common' folder to sys.path
 sys.path.insert(0, os.path.expanduser('/home/joel/common'))
 
-from common.gmail_auth import load_gmail_credentials
-
 import logging
+from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, request, Response
 from utils.process_event import handle_event, load_processed, save_processed
@@ -14,7 +13,6 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from utils.email_utils import send_error_email
 from tenacity import retry, wait_exponential, stop_after_attempt
-import atexit
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -30,7 +28,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("calendar_bot.log"),
+        logging.FileHandler("logs/calendar_bot.log"),
         logging.StreamHandler()
     ]
 )

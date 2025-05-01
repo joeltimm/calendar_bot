@@ -7,8 +7,8 @@ from pathlib import Path
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 WEBHOOK_URL = 'https://red-snails-vanish.loca.lt/webhook'  # Replace with your LocalTunnel URL
 
-token_path = Path(__file__).resolve().parents[1] / "auth" / "token.json"
-creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+token_path = Path(__file__).resolve().parents[2] / "common "/ "auth" / "token.json"
+creds = Credentials.from_authorized_user_file('calendar_token.json', SCOPES)
 
 service = build('calendar', 'v3', credentials=creds)
 

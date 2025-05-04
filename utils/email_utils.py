@@ -1,37 +1,46 @@
-import smtplib
+# calendar_bot/utils/email_utils.py
+
+import os
+import base64
+import requests
+
+from utils.logger import logger
+from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from dotenv import load_dotenv
-from pathlib import Path
-import os
-import base64
-import logging
-import requests
+from common.credentials import load_gmail_credentials
 
 load_dotenv()
 
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
-TO_EMAIL = os.getenv("TO_EMAIL")
-TOKEN_FILE = os.getenv("EMAIL_TOKEN_FILE", "gmail_token.json")
+TO_EMAIL    = os.getenv("TO_EMAIL")
 
+if not SENDER_EMAIL or not TO_EMAIL:
+    raise ValueError("Missing required environment variables: SENDER_EMAIL and TO_EMAIL")
+
+# Gmail API scopes
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 def get_access_token():
-    token_path = Path(__file__).resolve().parents[1] / "auth" / "gmail_token.json"
-    creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+    creds = load_gmail_credentials()
+    if not creds or not creds.valid:
+        raise Exception("Invalid Gmail credentials.")
     return creds.token
 
-def send_error_email(subject, body):
+def send_error_email(subject: str, body: str):
+    """
+    Send an error notification email via the Gmail API.
+    """
     try:
         access_token = get_access_token()
+        logger.debug("Sending error email via Gmail API")
 
         message = MIMEMultipart()
-        message["From"] = SENDER_EMAIL
-        message["To"] = TO_EMAIL
+        message["From"]    = SENDER_EMAIL
+        message["To"]      = TO_EMAIL
         message["Subject"] = subject
         message.attach(MIMEText(body, "plain"))
 
@@ -47,9 +56,9 @@ def send_error_email(subject, body):
         )
 
         if response.status_code != 200:
-            logging.error(f"Failed to send email: {response.text}")
+            logger.error(f"Failed to send email (status {response.status_code}): {response.text}")
         else:
-            logging.info("✅ Error email sent.")
+            logger.info("✅ Error email sent successfully.")
 
     except Exception as e:
-        logging.error(f"Exception in send_error_email: {e}", exc_info=True)
+        logger.error(f"Exception in send_error_email: {e}", exc_info=True)

@@ -4,14 +4,14 @@ import os
 import json
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from pathlib import Path
 
 # Gmail send scope
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 def main():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    auth_dir = os.path.join(base_dir, 'auth')
-    token_path = os.path.join(auth_dir, 'gmail_token.json')
+    auth_dir = Path(__file__).resolve().parents[2] / "common" / "auth"
+    token_path = auth_dir / 'gmail_token.json'
 
     if not os.path.exists(token_path):
         print(f"❌ Token file not found at {token_path}")

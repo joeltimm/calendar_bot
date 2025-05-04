@@ -1,26 +1,17 @@
 import json
 import os
-import logging
+from utils.logger import logger
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from utils.google_utils import build_calendar_service
 from dotenv import load_dotenv
 from googleapiclient.errors import HttpError
+from pathlib import Path
 
 # --- Load Environment Variables ---
 load_dotenv()
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 INVITE_EMAIL = os.getenv('INVITE_EMAIL')
-PROCESSED_FILE = os.getenv('PROCESSED_FILE', 'processed_events.json')
-
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("calendar_bot.log"),
-        logging.StreamHandler()
-    ]
-)
+PROCESSED_FILE = Path(__file__).resolve().parents[2] / "common" / "auth" / "processed_events.json"
 
 # --- Load/Save Processed Event IDs ---
 def load_processed():
@@ -47,11 +38,14 @@ def handle_event(event_id):
 
     attendees = event.get('attendees', [])
     if any(att.get('email') == INVITE_EMAIL for att in attendees):
-        logging.info(f"{INVITE_EMAIL} already invited to event: {event.get('summary')}")
+        logger.info(f"{INVITE_EMAIL} already invited to event: {event.get('summary')}")
+        return
+    if not INVITE_EMAIL:
+        logger.error("INVITE_EMAIL not set; cannot add attendee.")
         return
 
     attendees.append({'email': INVITE_EMAIL})
     event['attendees'] = attendees
 
     updated_event = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
-    logging.info(f"✅ Invited {INVITE_EMAIL} to: {updated_event.get('summary')}")
+    logger.info(f"✅ Invited {INVITE_EMAIL} to: {updated_event.get('summary')} (ID: {event.get('id')})")

@@ -1,0 +1,66 @@
+##For starting the service automatically
+    
+    localtunnel.service handles the tunnel, auto‐restarts on failure.
+
+    calendar_bot.service runs Gunicorn for your Flask app, auto‐restarts on failure.
+
+
+
+## Make 1st file:
+sudo nano /etc/systemd/system/localtunnel.service
+
+[Unit]
+Description=LocalTunnel for Calendar Bot
+After=network.target
+
+[Service]
+User=joel
+WorkingDirectory=/home/joel/calendar_bot
+# Use system-wide npx, not in venv
+ExecStart=/usr/bin/npx localtunnel --port 5000 --subdomain joelrockslinuxserver
+# Inherit both venv and system paths
+Environment="PATH=/home/joel/calendar_bot/venv/bin:/usr/bin:/bin"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+
+### Then run
+sudo systemctl daemon-reload
+sudo systemctl enable --now localtunnel.service
+sudo systemctl status localtunnel.service
+
+You should see it in active (running) state.
+
+
+## Create a 2nd file: 
+sudo nano /etc/systemd/system/calendar_bot.service
+
+[Unit]
+Description=Calendar Bot (Gunicorn)
+After=network.target localtunnel.service
+
+[Service]
+User=joel
+WorkingDirectory=/home/joel/calendar_bot
+Environment="PYTHONPATH=/home/joel/common"
+Environment="PATH=/home/joel/calendar_bot/venv/bin:/usr/bin:/bin"
+ExecStart=/home/joel/calendar_bot/venv/bin/gunicorn \
+  --workers 1 \
+  --timeout 120 \
+  --bind 0.0.0.0:5000 \
+  app:app
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+
+Save that file, then:
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now calendar_bot.service
+sudo systemctl status calendar_bot.service

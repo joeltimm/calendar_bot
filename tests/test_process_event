@@ -1,0 +1,10 @@
+import os, sys
+import pytest
+from utils.process_event import invite_if_needed
+
+def test_invite_logic_skips_existing():
+    dummy_event = {
+        'id': 'abc123',
+        'attendees': [{'email': 'joelandtaylor@gmail.com'}]
+    }
+    assert invite_if_needed(dummy_event) is False

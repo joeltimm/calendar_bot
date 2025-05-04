@@ -1,0 +1,16 @@
+##Validate core logic like token loading and event parsing.
+import pytest
+from utils.google_utils import load_calendar_credentials
+
+def test_load_calendar_credentials_success():
+    creds = load_calendar_credentials()
+    assert creds.valid
+
+from utils.process_event import invite_if_needed
+
+def test_invite_logic_skips_existing():
+    dummy_event = {
+        'id': 'abc123',
+        'attendees': [{'email': 'joelandtaylor@gmail.com'}]
+    }
+    assert invite_if_needed(dummy_event) is False

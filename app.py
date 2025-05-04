@@ -1,18 +1,20 @@
-import sys, os
+import sys
+import os
 
 # Add the shared 'common' folder to sys.path
 sys.path.insert(0, os.path.expanduser('/home/joel/common'))
 
-import logging
+from dotenv import load_dotenv
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, request, Response
+from tenacity import retry, wait_exponential, stop_after_attempt
+from datetime import datetime, timezone
 from utils.process_event import handle_event, load_processed, save_processed
 from utils.google_utils import build_calendar_service
-from datetime import datetime, timezone
-from dotenv import load_dotenv
 from utils.email_utils import send_error_email
-from tenacity import retry, wait_exponential, stop_after_attempt
+from utils.logger import logger
+from utils.health import send_health_ping
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -23,21 +25,11 @@ POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "15"))
 ENABLE_AUTO_INVITE = os.getenv("ENABLE_AUTO_INVITE", "true").lower() == "true"
 DEBUG_LOGGING = os.getenv("DEBUG_LOGGING", "false").lower() == "true"
 
-# --- Logging Configuration ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("logs/calendar_bot.log"),
-        logging.StreamHandler()
-    ]
-)
-
 if DEBUG_LOGGING:
-    logging.getLogger().setLevel(logging.DEBUG)
-    logging.debug("🐛 Debug logging enabled.")
+    logger.setLevel("DEBUG")
+    logger.debug("🐛 Debug logging enabled.")
 
-logging.info("🚀 Starting Flask app...")
+logger.info("🚀 Starting Flask app...")
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
@@ -45,9 +37,9 @@ app = Flask(__name__)
 # --- Load Processed Events ---
 try:
     processed_ids = load_processed()
-    logging.info("📂 Loaded processed event IDs.")
+    logger.info("📂 Loaded processed event IDs.")
 except Exception as e:
-    logging.error(f"❌ Failed to load processed events: {e}")
+    logger.error(f"❌ Failed to load processed events: {e}")
     processed_ids = set()
 
 # --- Global Exception Handler Setup ---
@@ -55,7 +47,7 @@ def log_unhandled_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
-    logging.error("💥 Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
+    logger.error("💥 Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
 
 sys.excepthook = log_unhandled_exception
 
@@ -67,52 +59,64 @@ def fetch_recent_events(service):
         events_result = service.events().list(
             calendarId='primary',
             timeMin=now,
-            maxResults=20,
+            maxResults=100,
             orderBy='startTime',
             singleEvents=True
         ).execute()
         return events_result.get('items', [])
     except Exception as e:
-        logging.error("❌ Failed to fetch recent events", exc_info=True)
+        logger.error("❌ Failed to fetch recent events", exc_info=True)
         send_error_email("Google Calendar API failure in fetch_recent_events", str(e))
         raise
 
 # --- Polling Job for Missed Events ---
 def poll_calendar():
-    logging.info("⏱️ Running scheduled poll...")
+    logger.info("⏱️ Running scheduled poll...")
     try:
         service = build_calendar_service()
         events = fetch_recent_events(service)
-        logging.info(f"📆 Retrieved {len(events)} upcoming events.")
+        logger.info(f"📆 Retrieved {len(events)} upcoming events.")
 
         for event in events:
             eid = event['id']
             summary = event.get('summary', 'No Title')
-            logging.info(f"👉 Event: {eid} - {summary}")
+            logger.info(f"👉 Event: {eid} - {summary}")
 
             if eid not in processed_ids:
-                logging.info(f"✅ Processing new event: {eid}")
+                logger.info(f"✅ Processing new event: {eid}")
                 handle_event(eid)
                 processed_ids.add(eid)
             else:
-                logging.debug(f"⏩ Skipping already processed: {eid}")
+                logger.debug(f"⏩ Skipping already processed: {eid}")
 
         save_processed(processed_ids)
-        logging.info("💾 Updated processed event list.")
+        logger.info("💾 Updated processed event list.")
     except Exception as e:
-        logging.error(f"❌ Error in poll_calendar: {e}", exc_info=True)
+        logger.error(f"❌ Error in poll_calendar: {e}", exc_info=True)
         send_error_email("Calendar Bot Polling Error", str(e))
 
 # --- APScheduler Setup ---
 scheduler = BackgroundScheduler()
 scheduler.add_job(poll_calendar, 'interval', minutes=POLL_INTERVAL_MINUTES)
+scheduler.add_job(send_health_ping, 'cron', hour=8)  # e.g. 8 AM daily
 scheduler.start()
-# atexit.register(lambda: scheduler.shutdown())  # Optional, only if you want clean exit
 
 # --- Webhook Route ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    logging.info("📩 Webhook received!")
+    logger.info("📩 Webhook received!")
+    channel_id = request.headers.get('X-Goog-Channel-ID')
+    resource_state = request.headers.get('X-Goog-Resource-State')
+    
+    # Known channel ID in .env
+    expected_channel_id = os.getenv("EXPECTED_CHANNEL_ID")
+    if expected_channel_id and channel_id != expected_channel_id:
+        logger.warning(f"⚠️ Invalid webhook Channel ID: {channel_id}")
+        return "Unauthorized", 403
+
+    if resource_state != "exists":
+        logger.info(f"📭 Ignoring webhook with state: {resource_state}")
+        return "Ignored", 200
     poll_calendar()
     return Response("OK", status=200)
 
@@ -122,9 +126,9 @@ def health():
 
 # --- Only run once (not on reload) ---
 if os.getenv("WERKZEUG_RUN_MAIN") != "true":
-    logging.info("🧠 Main process started (no reloader).")
+    logger.info("🧠 Main process started (no reloader).")
 
-# --- Run the Flask App ---
+# --- Run the Flask App (development only) ---
 if __name__ == "__main__":
-    logging.info("🚦 Flask app running at http://0.0.0.0:5000")
+    logger.info("🚦 Flask app running at http://0.0.0.0:5000")
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)

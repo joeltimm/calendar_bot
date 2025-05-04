@@ -1,14 +1,13 @@
 import uuid
-import datetime
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from pathlib import Path
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
-WEBHOOK_URL = 'https://red-snails-vanish.loca.lt/webhook'  # Replace with your LocalTunnel URL
+WEBHOOK_URL = 'https://joelrockslinuxserver.loca.lt'  # LocalTunnel URL
 
-token_path = Path(__file__).resolve().parents[2] / "common "/ "auth" / "token.json"
-creds = Credentials.from_authorized_user_file('calendar_token.json', SCOPES)
+creds_path = Path(__file__).resolve().parents[2] / "common" / "auth" / "calendar_token.json"
+creds = Credentials.from_authorized_user_file(str(creds_path), SCOPES)
 
 service = build('calendar', 'v3', credentials=creds)
 

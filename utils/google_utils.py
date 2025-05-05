@@ -1,3 +1,5 @@
+# calendar_bot/utils/google_utils.py
+
 from utils.logger import logger
 from pathlib import Path
 from google.oauth2.credentials import Credentials
@@ -12,28 +14,24 @@ def load_calendar_credentials():
     """
     logger.info("🔐 Loading shared calendar token…")
     token_path = Path(__file__).resolve().parents[2] / "common" / "auth" / "calendar_token.json"
-    logger.debug(f"Looking for calendar token at: {token_path}")
-
     if not token_path.exists():
-        raise FileNotFoundError(f"Calendar token not found at: {token_path}")
-
+        raise FileNotFoundError(f"Calendar token not found at {token_path}")
     creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-
     if creds.expired and creds.refresh_token:
-        logger.info("🔄 Refreshing expired calendar credentials…")
         creds.refresh(Request())
         with open(token_path, "w") as f:
             f.write(creds.to_json())
-
     if not creds or not creds.valid:
-        raise Exception("❌ Invalid Calendar credentials loaded.")
-
+        raise Exception("Invalid Calendar credentials.")
     return creds
 
 def build_calendar_service():
     """
     Build the Google Calendar service using the shared credentials.
     """
-    logger.info("🔧 Building Google Calendar service…")
+    logger.info("🔧 loading creds to google_utils.py")
     creds = load_calendar_credentials()
-    return build('calendar', 'v3', credentials=creds)
+    logger.info("🔧 Building Google Calendar service…")
+    service = build('calendar', 'v3', credentials=creds)  # Only call build once
+    logger.info("🔧 service built")
+    return service

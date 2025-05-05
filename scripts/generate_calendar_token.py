@@ -4,13 +4,13 @@ import os
 from google_auth_oauthlib.flow import InstalledAppFlow
 from pathlib import Path
 
-SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def main():
     # Calculate paths safely
     auth_dir = Path(__file__).resolve().parents[2] / "common" / "auth"
-    credentials_path = auth_dir / 'gmail_credentials.json'
-    token_path = auth_dir / 'gmail_token.json'
+    credentials_path = auth_dir / 'calendar_credentials.json'
+    token_path = auth_dir / 'calendar_token.json'
 
     # Make sure auth directory exists
     os.makedirs(auth_dir, exist_ok=True)

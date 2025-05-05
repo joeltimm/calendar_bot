@@ -78,22 +78,33 @@ def poll_calendar():
         logger.info(f"📆 Retrieved {len(events)} upcoming events.")
 
         for event in events:
-            eid = event['id']
+            eid = event.get('id')
             summary = event.get('summary', 'No Title')
-            logger.info(f"👉 Event: {eid} - {summary}")
+            logger.debug(f"👉Checking event: {eid} - {summary}")
 
-            if eid not in processed_ids:
+            if not eid:
+                logger.warning("⚠️ Skipping event with no ID.")
+                continue
+
+            if eid in processed_ids:
+                logger.debug(f"⏩ Already processed: {eid}")
+                continue
+
+            try:
                 logger.info(f"✅ Processing new event: {eid}")
-                handle_event(eid)
+                handle_event(service, eid)
                 processed_ids.add(eid)
-            else:
-                logger.debug(f"⏩ Skipping already processed: {eid}")
 
+            except Exception as e:
+                logger.error(f"❌ Error processing event {eid}: {e}", exc_info=True)
+                send_error_email("Calendar Bot Event Processing Error", str(e))
+
+            
         save_processed(processed_ids)
         logger.info("💾 Updated processed event list.")
     except Exception as e:
-        logger.error(f"❌ Error in poll_calendar: {e}", exc_info=True)
-        send_error_email("Calendar Bot Polling Error", str(e))
+            logger.error(f"❌ Error in poll_calendar: {e}", exc_info=True)
+            send_error_email("Calendar Bot Polling Error", str(e))
 
 # --- APScheduler Setup ---
 scheduler = BackgroundScheduler()

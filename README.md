@@ -1,9 +1,8 @@
-from pathlib import Path
-
-readme_updated = "4/25/25"
 # 📅 Calendar Bot
 
-A powerful automation script that listens for Google Calendar push notifications and automatically invites a configured email address to newly created events.
+A robust automation script that listens for Google Calendar push notifications and automatically invites a configured email address to newly created events.
+
+📝 **Last Updated:** 2025-04-25
 
 ---
 
@@ -12,248 +11,193 @@ A powerful automation script that listens for Google Calendar push notifications
 - ✅ Automatically detects and processes new Google Calendar events
 - ✉️ Invites a configured email address to each new event
 - 🔁 Retry logic with exponential backoff using Tenacity
-- 📩 Sends email alerts on error using Gmail SMTP and OAuth2
-- 📦 Environment-variable driven configuration with `.env` support
-- 💾 Tracks processed event IDs to prevent duplicates
-- 🧠 Modular design: reusable logic for credential handling, event processing, email sending
-- 🖥️ systemd integration for persistent deployment
-- 🌐 LocalTunnel support for webhook development
-- 🧱 Runs with Gunicorn WSGI server in production mode
-- 🛑 Detects and prevents port conflict errors with automatic restart
+- 📩 Sends error alerts using Gmail SMTP with OAuth 2.0
+- 📦 `.env`-driven configuration with fallback defaults
+- 💾 Tracks processed event IDs to avoid duplicates
+- 🧠 Modular credential and auth handling (shared across bots)
+- 🖥️ Deployable as a `systemd` service with Gunicorn
+- 🌐 Supports webhook development with LocalTunnel
+- 🛑 Handles port conflict detection and recovery
+- 📈 Sends daily health pings (if configured)
 
 ---
 
 ## 📁 Project Structure
+/home/YOUR_USER
+├──calendar_bot/
+|    ├── app.py # Flask app: webhook + scheduler
+|    ├── utils/
+|    │ ├── email_utils.py # Gmail SMTP with OAuth2
+|    │ ├── google_utils.py # Calendar service builder
+|    │ ├── process_event.py # Event logic and ID tracking
+|    │ ├── register_webhook.py# Registers calendar webhook
+|    │ ├── logger.py # Unified log setup
+|    │ └── health.py # Optional health ping logic
+|    ├── logs/ # Log files (calendar_bot.log)
+|    ├── scripts/
+|    │ ├── generate_gmail_token.py
+|    │ ├── test_email.py
+|    │ ├── test_gmail_credentials.py
+|    │ └── start_bot.sh
+|    ├── .env # Runtime config (not committed)
+|    ├── .env.example # Template env file
+|    ├── processed_events.json # Tracks processed event IDs
+|    ├── requirements.txt
+|    └── venv/ # Python virtual environment
+|
+├──common/ #  Shared across bots
+     ├── credentials.py # Unified credential loader
+     └── auth/
+         ├── calendar_credentials.json
+         ├── calendar_token.json
+         ├── gmail_credentials.json
+         └── gmail_token.json
 
-calendar_bot/ 
-├── app.py # Flask webhook + poll scheduler 
-├── common/ # Shared modules & credentials 
-│   ├── init.py │ 
-    ├── credentials.py # load_gmail_credentials load_calendar_credentials │ 
-    └── auth/ │ 
-    ├── calendar_credentials.json │ 
-    ├── calendar_token.json │ 
-    ├── gmail_credentials.json │ 
-    └── gmail_token.json 
-├── logs/ # Log files 
-├── processed_events.json # Tracks processed event IDs 
-├── requirements.txt 
-├── scripts/ # Utility scripts 
-     ├── generate_gmail_token.py │ 
-     ├── test_email.py │ 
-     ├── test_gmail_credentials.py │ 
-     └── start_bot.sh 
-├── utils/ # App-specific helpers │ 
-    ├── email_utils.py │ 
-    ├── google_utils.py # build_calendar_service() now imports common.credentials │ 
-    ├── process_event.py │ 
-    └── register_webhook.py 
-├── .env # Your secrets and config (not committed) 
-├── .env.example # Example config file 
-└── venv/ # Python virtual environment
+
 ---
 
 ## 🔧 Configuration
 
-Create a `.env` file with the following:
+    Create a `.env` file:
 
-```env
-INVITE_EMAIL=youremail@example.com
-PROCESSED_FILE=processed_events.json
-ENABLE_AUTO_INVITE=true
-DEBUG_LOGGING=false
-SENDER_EMAIL=youremail@example.com
-TO_EMAIL=alertrecipient@example.com
-EMAIL_TOKEN_FILE=gmail_token.json
+        ```env
+        INVITE_EMAIL=youremail@example.com
+        SENDER_EMAIL=youremail@example.com
+        TO_EMAIL=alerts@example.com
+        EMAIL_TOKEN_FILE=gmail_token.json
+        PROCESSED_FILE=processed_events.json
+        ENABLE_AUTO_INVITE=true
+        DEBUG_LOGGING=false
+        EXPECTED_CHANNEL_ID=xyz123abc456
 
-## 📦 Dependencies
+📦 Dependencies
 
-    Install dependencies with:
+    Install Python packages:
 
-    pip install -r requirements.txt
+        pip install -r requirements.txt
 
-        Minimal requirements.txt:
+    Minimal requirements.txt:
 
-            Flask
-            gunicorn
-            google-api-python-client
-            google-auth
-            google-auth-oauthlib
-            python-dotenv
-            tenacity
+        Flask
+        gunicorn
+        google-api-python-client
+        google-auth
+        google-auth-oauthlib
+        python-dotenv
+        tenacity
 
-## 🚀 Setup Instructions
+⚙️ Setup Instructions
 
-1. **Clone & install**  
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/calendar_bot.git
-   cd calendar_bot
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   cp .env.example .env
-   # then edit .env with your own values
+    1. Clone & Setup
 
-2. 🔐 Google API Setup
+        git clone git@github.com:YOUR_USERNAME/calendar_bot.git
+        cd calendar_bot
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+        cp .env.example .env  # Edit this with your values
 
-    Go to Google Cloud Console
+    2. Google Cloud Setup
 
-    Enable the Google Calendar API and Gmail API
+        Enable Google Calendar API and Gmail API
 
-    Download credentials.json and run the OAuth flow to generate:
+        Download your OAuth credentials:
 
-        calendar_token.json (Calendar)
+            calendar_credentials.json → place in common/auth/
 
-        gmail_token.json (SMTP)
+            gmail_credentials.json → place in common/auth/
 
-    Enable APIs & create OAuth credentials
+    3. Generate OAuth Tokens
 
-    Google Calendar API → download calendar_credentials.json → place in common/auth/
+        Run interactively:
 
-    Gmail API → download gmail_credentials.json → place in common/auth/
+        python scripts/generate_calendar_token.py  # common/auth/calendar_token.json
+        python scripts/generate_gmail_token.py     # common/auth/gmail_token.json
 
-3. Generate & refresh tokens
+    4. Test Credentials
 
-        Calendar token (interactive):
+        python scripts/test_gmail_credentials.py
+        python scripts/test_email.py
 
-    python scripts/generate_calendar_token.py
+    5. Register Webhook
 
-    resulting in common/auth/calendar_token.json
+        python utils/register_webhook.py
 
-    Gmail token (interactive):
+    6. Run Locally (for testing)
 
-        python scripts/generate_gmail_token.py
+        python app.py
 
-        resulting in common/auth/gmail_token.json
+    🛠 Production Deployment (Systemd + Gunicorn)
 
-4. Test tokens
+    7. Create a Systemd Service
 
-    python scripts/test_gmail_credentials.py
-    python scripts/test_email.py
+        # /etc/systemd/system/calendar_bot.service
+        [Unit]
+        Description=Google Calendar Bot (Gunicorn)
+        After=network.target
 
-5. Register webhook
+        [Service]
+        ExecStart=/home/YOUR_USER/calendar_bot/venv/bin/gunicorn -b 0.0.0.0:5000 app:app
+        WorkingDirectory=/home/YOUR_USER/calendar_bot
+        Restart=always
+        RestartSec=5
+        User=YOUR_USER
+        Environment="PATH=/home/YOUR_USER/calendar_bot/venv/bin"
 
-    python utils/register_webhook.py
+        [Install]
+        WantedBy=multi-user.target
 
-6. systemd service
-        🖥️ As a systemd service (for production)
+    8. Enable & Start
 
-            Recommended: Use Gunicorn (production-grade WSGI server)
-                7.1. Create a systemd service file:
+        sudo systemctl daemon-reexec
+        sudo systemctl enable calendar_bot
+        sudo systemctl start calendar_bot
 
-                    # /etc/systemd/system/calendar_bot.service
-                        [Unit]
-                        Description=Google Calendar Bot (Gunicorn)
-                        After=network.target
+    9. Check Logs
 
-                        [Service]
-                        ExecStart=/home/youruser/calendar_bot/venv/bin/gunicorn -b 0.0.0.0:5000 app:app
-                        WorkingDirectory=/home/youruser/calendar_bot
-                        Restart=always
-                        RestartSec=5
-                        User=youruser
-                        Environment="PATH=/home/youruser/calendar_bot/venv/bin"
+        journalctl -u calendar_bot -f
 
-                        [Install]
-                        WantedBy=multi-user.target
+🌐 Webhook Development with LocalTunnel
 
-                            Update paths and User= as appropriate.
+    Expose webhook for testing:
 
-                7.2. Enable and start the service:
+    npx localtunnel --port 5000 --subdomain your-subdomain
 
-                    sudo systemctl daemon-reexec
-                    sudo systemctl enable calendar_bot
-                    sudo systemctl start calendar_bot
+    Use the resulting HTTPS URL in register_webhook.py.
+    📬 Error Notifications
 
-                7.3. Check status:
+    Errors in event handling, token loading, and Gmail failures trigger alerts to TO_EMAIL using send_error_email() and OAuth2 SMTP.
+    🛡 Security Notes
 
-                    sudo systemctl status calendar_bot
+        OAuth secrets (*_credentials.json) and tokens (*_token.json) live in common/auth/
 
-                    Watch logs:
+        .env file stores runtime secrets (excluded from git)
 
-                        journalctl -u calendar_bot -f
+        Gmail tokens auto-refresh when expired
 
-                7.4. 🌐 Webhook Testing with LocalTunnel
-
-                    Expose the local Flask server:
-
-                    npx localtunnel --port 5000 --subdomain your-custom-subdomain
-
-                    Use the generated HTTPS URL to register the webhook with the Google Calendar API.
-                    📝 Logging
-
-    Logs are written to both the console and calendar_bot.log:
-
-    2025-04-24 17:02:41,217 [INFO] ✅ Processing new event: abc123def456
-    2025-04-24 17:02:41,317 [INFO] Invited youremail@example.com to: Meeting with Bob
-
-8. ▶️ Running the App
-Locally (for development & debugging)
-
-    python3 app.py
-
-    ⚠️ Flask's development server will show this warning:
-
-    WARNING: This is a development server. Do not use it in a production deployment.
-
-🚀 Calendar Bot Deployment (Systemd + Gunicorn + LocalTunnel)
-
-    This bot runs automatically using systemd services. Do not start it manually with scripts.
-    ✅ Starting the Bot
-
-    sudo systemctl start calendar_bot.service
-    sudo systemctl start localtunnel.service
-
-🔁 Enabling Auto-Start on Boot
-
-    sudo systemctl enable calendar_bot.service
-    sudo systemctl enable localtunnel.service
-
-🛠 Restarting After Changes
-
-    If you change any code or environment settings:
+🔁 Restarting After Changes
 
     sudo systemctl daemon-reload
-    sudo systemctl restart calendar_bot.service
+    sudo systemctl restart calendar_bot
+    sudo systemctl restart localtunnel
+
+🧪 Troubleshooting
+
+    Port Already in Use?
+
+    sudo pkill -f flask
+    sudo pkill -f gunicorn
+
+    LocalTunnel Failing?
+
     sudo systemctl restart localtunnel.service
 
-🔍 Checking Status
+🔭 Future Ideas
 
-    sudo systemctl status calendar_bot.service
-    sudo systemctl status localtunnel.service
-
-    Look for any errors or port conflicts (e.g., port 5000 already in use).
-
-🛑 Stopping the Bot
-
-    sudo systemctl stop calendar_bot.service
-    sudo systemctl stop localtunnel.service
-
-⚠️ Common Issues
-
-    Port already in use: Kill leftover Flask/Gunicorn processes with:
-
-        sudo pkill -f flask
-        sudo pkill -f gunicorn
-
-    LocalTunnel connection refused: The tunnel may be blocked or rate-limited. Try restarting:
-
-        sudo systemctl restart localtunnel.service
-
-📬 Error Notifications
-
-    Any critical errors (missing token, API failure) trigger send_error_email() using refreshed Gmail credentials.
-
-🛡 Security
-
-    Client secrets (*_credentials.json) live in common/auth/ and are never committed.
-
-    Tokens (*_token.json) are refreshed and re-saved automatically, also under common/auth/.
-
-    .env contains only environment variables—keep it out of source control.
-
-🔭 Future Improvements
-
-    🔐 Webhook validation for security
+    🔐 Webhook signature validation
 
     🐳 Docker container support
+
+    📊 Dashboard for log/event insights
+
+    🧪 Unit tests for webhook & processing logic

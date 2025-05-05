@@ -34,73 +34,88 @@ def save_processed(event_ids):
     stop=stop_after_attempt(5),
     reraise=True
 )
-def handle_event(event_id: str):
-    if not INVITE_EMAIL:
-        logger.error("INVITE_EMAIL not set; cannot add attendee.")
+def handle_event(service, event_id: str, invite_email: str = INVITE_EMAIL):
+    logger.debug(f"➡️ handle_event called with service={service!r}, event_id={event_id}, invite_email={invite_email}")
+    logger.debug(f"🔍 Handling event: {event_id}")
+
+    if not invite_email:
+        logger.error("❌ INVITE_EMAIL not set; cannot invite.")
         return
 
-    service = build_calendar_service()
+    try:
+        event = service.events().get(calendarId="primary", eventId=event_id).execute()
+        logger.debug(f"📄 Fetched event details: {json.dumps(event, indent=2)}")
+    except HttpError as e:
+        logger.error(f"❌ Failed to fetch event {event_id}: {e}", exc_info=True)
+        raise
 
-    # Fetch the full event so we can see existing attendees
-    event = service.events().get(calendarId='primary', eventId=event_id).execute()
-    
-    # Log the fetched event for debugging purposes
-    logger.debug(f"Fetched event details: {json.dumps(event, indent=2)}")
     summary = event.get('summary', '(no title)')
 
-    # Check if 'start' and 'end' times exist, and log warnings if they're missing
-    if 'start' not in event:
-        logger.warning(f"Missing start time for event {event_id}.")
-        # Optionally, set a default start time if appropriate
-        start_time = {'dateTime': '2025-05-04T20:00:00-05:00'}  # Adjust as needed
-    else:
-        start_time = event['start']
+    if event.get("eventType") == "fromGmail":
+        logger.info(f"🔁 Duplicating 'fromGmail' event: {event_id}")
 
-    if 'end' not in event:
-        logger.warning(f"Missing end time for event {event_id}.")
-        # Optionally, set a default end time if appropriate
-        end_time = {'dateTime': '2025-05-04T22:00:00-05:00'}  # Adjust as needed
-    else:
-        end_time = event['end']
+        # Build new event payload
+        new_event = {
+            "summary": event.get("summary"),
+            "description": event.get("description"),
+            "start": event.get("start"),
+            "end": event.get("end"),
+            "location": event.get("location"),
+            "attendees": [{"email": invite_email}],
+        }
 
-    attendees = event.get('attendees', [])
-    if any(att.get('email') == INVITE_EMAIL for att in attendees):
-        logger.info(f"{INVITE_EMAIL} already invited to event “{summary}” ({event_id})")
+        try:
+            inserted = service.events().insert(
+                calendarId="primary",
+                body=new_event,
+                sendUpdates="all"
+            ).execute()
+
+            logger.info(f"✅ Created new event copy with ID: {inserted['id']} for “{inserted.get('summary', '(no title)')}”")
+
+            # Now delete the original
+            service.events().delete(calendarId="primary", eventId=event_id).execute()
+            logger.info(f"🗑️ Deleted original 'fromGmail' event: {event_id}")
+        except HttpError as e:
+            logger.error(f"❌ Failed to duplicate/delete 'fromGmail' event {event_id}: {e}", exc_info=True)
+            raise
+
+        return  # We're done — skip the rest
+
+    # -- Regular event: continue as normal --
+
+    if 'start' not in event or 'end' not in event:
+        logger.warning(f"⚠️ Skipping event {event_id}: missing start or end.")
         return
 
-    # Build a minimal list of attendees containing only their email addresses
-    minimal = [{'email': a['email']} for a in attendees if 'email' in a]
-    minimal.append({'email': INVITE_EMAIL})
+    attendees = event.get('attendees', [])
+    if any(att.get('email') == invite_email for att in attendees):
+        logger.info(f"{invite_email} already invited to event “{summary}” ({event_id})")
+        return
 
-    # Build the patch body, ensuring 'start' and 'end' times are set correctly
+    minimal = [{'email': a['email']} for a in attendees if 'email' in a]
+    minimal.append({'email': invite_email})
+
     patch_body = {
         'attendees': minimal,
-        'start': start_time,
-        'end': end_time
+        'start': event['start'],
+        'end': event['end']
     }
 
-    # Log exactly what we’re sending
-    logger.debug(
-        "Patching event %s with body:\n%s",
-        event_id,
-        json.dumps(patch_body, indent=2)
-    )
+    logger.debug(f"🔧 Patching event {event_id} with:\n{json.dumps(patch_body, indent=2)}")
 
     try:
         updated = service.events().patch(
             calendarId='primary',
             eventId=event_id,
             body=patch_body,
-            sendUpdates='all'         # Ensure Google sends the invitation
+            sendUpdates='all'
         ).execute()
-        logger.info(f"✅ Invited {INVITE_EMAIL} to “{updated.get('summary', summary)}” (ID: {event_id})")
+        logger.info(f"✅ Invited {invite_email} to “{updated.get('summary', summary)}” (ID: {event_id})")
     except HttpError as e:
-        # Decode and log the full error response
         content = e.content.decode() if hasattr(e, 'content') else str(e)
         logger.error(
-            "❌ Calendar API patch failed for %s: %s\nFull response: %s",
-            event_id,
-            getattr(e, 'error_details', e.status_code),
-            content
+            f"❌ Calendar API patch failed for {event_id}: {e.status_code if hasattr(e, 'status_code') else 'Unknown'}\nFull response: {content}",
+            exc_info=True
         )
         raise

@@ -1,5 +1,5 @@
 # calendar_bot/utils/google_utils.py
-
+import os
 from utils.logger import logger
 from pathlib import Path
 from google.oauth2.credentials import Credentials
@@ -8,30 +8,31 @@ from google.auth.transport.requests import Request
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
-def load_calendar_credentials():
+SOURCE_CALENDARS      = [c.strip() for c in os.getenv("SOURCE_CALENDARS", "").split(",") if c]
+CALENDAR_TOKEN_FILES  = [p.strip() for p in os.getenv("CALENDAR_TOKEN_FILES", "").split(",") if p]
+CALENDAR_TOKEN_MAP    = dict(zip(SOURCE_CALENDARS, CALENDAR_TOKEN_FILES))
+
+def load_calendar_credentials(calendar_id: str) -> Credentials:
     """
-    Load, refresh (if expired), and save the shared Calendar OAuth2 token.
+    Load and refresh (if needed) the OAuth token for the given calendar_id.
     """
-    logger.info("🔐 Loading shared calendar token…")
-    token_path = Path(__file__).resolve().parents[2] / "common" / "auth" / "calendar_token.json"
-    if not token_path.exists():
-        raise FileNotFoundError(f"Calendar token not found at {token_path}")
+    token_path = Path(CALENDAR_TOKEN_MAP.get(calendar_id, ""))
+    if not token_path or not token_path.exists():
+        raise FileNotFoundError(f"No token file configured for {calendar_id}")
+    logger.info(f"🔐 Loading token for {calendar_id} from {token_path}")
     creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        with open(token_path, "w") as f:
-            f.write(creds.to_json())
-    if not creds or not creds.valid:
-        raise Exception("Invalid Calendar credentials.")
+        token_path.write_text(creds.to_json())
+    if not creds.valid:
+        raise RuntimeError(f"Invalid credentials for {calendar_id}")
     return creds
 
-def build_calendar_service():
+def build_calendar_service(calendar_id: str):
     """
-    Build the Google Calendar service using the shared credentials.
+    Build the Calendar service bound to the given calendar_id.
     """
-    logger.info("🔧 loading creds to google_utils.py")
-    creds = load_calendar_credentials()
-    logger.info("🔧 Building Google Calendar service…")
-    service = build('calendar', 'v3', credentials=creds)  # Only call build once
-    logger.info("🔧 service built")
-    return service
+    suffix = calendar_id.split("@")[0]  # Extracts 'joeltimm' from 'joeltimm@gmail.com'
+    creds = load_credentials(suffix)
+    logger.info(f"🔧 Building Calendar service for {calendar_id}")
+    return build('calendar', 'v3', credentials=creds)

@@ -1,9 +1,13 @@
 # register_webhook.py
-
+import sys, os
+sys.path.insert(0, os.path.expanduser('/home/joel'))
 import uuid
-import os
+import msal
 from dotenv import load_dotenv
 from utils.google_utils import build_calendar_service
+from googleapiclient.discovery import build
+from pathlib import Path
+from common.credentials import load_credentials
 
 load_dotenv()
 

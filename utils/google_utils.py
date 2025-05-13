@@ -5,12 +5,11 @@ from pathlib import Path
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
+from common.credentials import load_credentials
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 SOURCE_CALENDARS      = [c.strip() for c in os.getenv("SOURCE_CALENDARS", "").split(",") if c]
-CALENDAR_TOKEN_FILES  = [p.strip() for p in os.getenv("CALENDAR_TOKEN_FILES", "").split(",") if p]
-CALENDAR_TOKEN_MAP    = dict(zip(SOURCE_CALENDARS, CALENDAR_TOKEN_FILES))
 
 def load_calendar_credentials(calendar_id: str) -> Credentials:
     """

@@ -1,15 +1,14 @@
 # register_webhook.py
+from encrypted_env_loader import load_encrypted_env
+load_encrypted_env()
 import sys, os
-sys.path.insert(0, os.path.expanduser('/home/joel'))
 import uuid
 import msal
-from dotenv import load_dotenv
+ 
 from utils.google_utils import build_calendar_service
 from googleapiclient.discovery import build
 from pathlib import Path
 from common.credentials import load_credentials
-
-load_dotenv()
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") #localtunnel url
 SOURCE_CALENDARS = [c.strip() for c in os.getenv("SOURCE_CALENDARS", "").split(",") if c]

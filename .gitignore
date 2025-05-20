@@ -10,6 +10,7 @@ __pycache__/
 # Virtual environments
 venv/
 .env
+.env.encrypted
 .pytest_cache/
 
 # Auth tokens and credentials

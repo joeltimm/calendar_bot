@@ -10,8 +10,8 @@ from pathlib import Path
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 def main():
-    auth_dir = Path(__file__).resolve().parents[2] / "common" / "auth"
-    token_path = auth_dir / 'gmail_token.json'
+    auth_dir = Path(__file__).resolve().parents[1] / "common" / "auth"
+    token_path = auth_dir / 'gmail_token_joeltimm.json'
 
     if not os.path.exists(token_path):
         print(f"❌ Token file not found at {token_path}")

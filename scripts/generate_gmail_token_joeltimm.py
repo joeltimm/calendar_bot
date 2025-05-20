@@ -1,38 +1,41 @@
 #!/usr/bin/env python3
 
-import os, sys
+import os
+import sys
 from pathlib import Path
 from google_auth_oauthlib.flow import InstalledAppFlow
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
-from common.credentials import load_gmail_credentials_joeltimm
+
+# allow imports from your project root if needed:
+sys.path.insert(0, os.path.expanduser('~/calendar_bot'))
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 def main():
-    auth_dir = Path(__file__).resolve().parents[2] / "common" / "auth"
-    credentials_path = auth_dir / 'gmail_credentials_joeltimm.json'
-    token_path = auth_dir / 'gmail_token_joeltimm.json'
+    # ---- Compute where your client‑secrets and token live ----
+    auth_dir = Path(__file__).resolve().parents[1] / "common" / "auth"
+    credentials_path = auth_dir / "gmail_credentials_joeltimm.json"
+    token_path       = auth_dir / "gmail_token_joeltimm.json"
 
+    # ---- Ensure folder exists ----
     os.makedirs(auth_dir, exist_ok=True)
 
-    # ✅ This was missing:
+    # ---- Start the OAuth flow ----
     flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
 
-    # Manual authorization URL
-    auth_url, _ = flow.authorization_url(prompt='consent')
-    print("👉 Please open the following URL in your browser:")
+    # For console flow: prints a URL, then you paste back the code
+    auth_url, _ = flow.authorization_url(prompt="consent")
+    print("👉 Please open this URL in your browser:\n")
     print(auth_url)
+    print()
 
     code = input("🔐 Paste the authorization code here: ")
     flow.fetch_token(code=code)
 
     creds = flow.credentials
-    with open(token_path, 'w') as token_file:
-        token_file.write(creds.to_json())
 
-    print(f"✅ Token saved successfully at {token_path}")
+    # ---- Save the token JSON ----
+    token_path.write_text(creds.to_json())
+    print(f"\n✅ Token saved successfully at {token_path}")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

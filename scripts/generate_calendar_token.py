@@ -8,9 +8,10 @@ SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def main():
     # Calculate paths safely
-    auth_dir = Path(__file__).resolve().parents[2] / "common" / "auth"
-    credentials_path = auth_dir / 'calendar_credentials.json'
-    token_path = auth_dir / 'calendar_token.json'
+    auth_dir = Path(__file__).resolve().parents[1] / "common" / "auth"
+    credentials_path = auth_dir / 'calendar_credentials_joeltimm.json'
+    token_path = auth_dir / 'calendar_token_joeltimm.json'
+
 
     # Make sure auth directory exists
     os.makedirs(auth_dir, exist_ok=True)

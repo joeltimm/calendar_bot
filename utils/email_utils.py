@@ -1,4 +1,6 @@
 # calendar_bot/utils/email_utils.py
+from encrypted_env_loader import load_encrypted_env
+load_encrypted_env()
 
 import os
 import base64
@@ -10,10 +12,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
-from dotenv import load_dotenv
+ 
 from common.credentials import load_gmail_credentials
-
-load_dotenv()
 
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 TO_EMAIL    = os.getenv("TO_EMAIL")

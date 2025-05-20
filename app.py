@@ -1,11 +1,12 @@
+#app.py
+from encrypted_env_loader import load_encrypted_env
+load_encrypted_env()
+
 import sys
 import os
-
-# Add the shared 'common' folder to sys.path
-sys.path.insert(0, os.path.expanduser('/home/joel/common'))
-
-from dotenv import load_dotenv
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent / "common"))
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, request, Response
 from tenacity import retry, wait_exponential, stop_after_attempt
@@ -18,7 +19,6 @@ from utils.logger import logger
 from utils.health import send_health_ping
 
 # --- Load Environment Variables ---
-load_dotenv()
 PROCESSED_FILE = os.getenv("PROCESSED_FILE", "processed_events.json")
 POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "15"))
 SOURCE_CALENDARS = [c.strip() for c in os.getenv("SOURCE_CALENDARS", "").split(",") if c.strip()]

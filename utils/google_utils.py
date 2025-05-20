@@ -1,4 +1,6 @@
 # calendar_bot/utils/google_utils.py
+from encrypted_env_loader import load_encrypted_env
+load_encrypted_env()
 import os
 from utils.logger import logger
 from pathlib import Path
@@ -15,7 +17,6 @@ def load_calendar_credentials(calendar_id: str) -> Credentials:
     """
     Load and refresh (if needed) the OAuth token for the given calendar_id.
     """
-    token_path = Path(CALENDAR_TOKEN_MAP.get(calendar_id, ""))
     if not token_path or not token_path.exists():
         raise FileNotFoundError(f"No token file configured for {calendar_id}")
     logger.info(f"🔐 Loading token for {calendar_id} from {token_path}")

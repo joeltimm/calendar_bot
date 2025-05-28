@@ -74,3 +74,7 @@ start_bot.sh
 # macOS system files
 .DS_Store
 EOF
+
+#Other
+docker_plan.md
+

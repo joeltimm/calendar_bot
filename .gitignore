@@ -57,6 +57,7 @@ venv/
 */*access_token*.txt
 */*refresh_token*.txt
 */*oauth2_token*.txt
+*/*credentials.py
 
 # Logs
 logs/

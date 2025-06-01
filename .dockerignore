@@ -1,0 +1,85 @@
+__pycache__
+*.pyc
+*.pyo
+.git
+.vscode
+*.log
+cat > .gitignore <<'EOF'
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv
+venv/
+.env
+
+.pytest_cache/
+
+# Auth tokens and credentials
+*/*token*.json
+*/*gmail_token*.json
+*/*calendar_token*.json 
+*/*credentials*.yaml
+*/*token*.yaml
+*/*token*.txt
+*/*secret*.json
+*/*secret*.yaml
+*/*secret*.txt
+*/*client_secret*.json
+*/*client_secret*.yaml
+*/*client_secret*.txt
+*/*service_account*.json
+*/*service_account*.yaml
+*/*service_account*.txt
+*/*api_key*.json
+*/*api_key*.yaml
+*/*api_key*.txt
+*/*auth*.json
+*/*auth*.yaml
+*/*auth*.txt
+*/*access_token*.json
+*/*access_token*.yaml
+*/*access_token*.txt
+*/*refresh_token*.json
+*/*refresh_token*.yaml
+*/*refresh_token*.txt
+*/*oauth2_token*.json
+*/*oauth2_token*.yaml
+*/*oauth2_token*.txt
+*/*credentials*.txt
+*/*token*.txt
+*/*secret*.txt
+*/*client_secret*.txt
+*/*service_account*.txt
+*/*api_key*.txt
+*/*auth*.txt
+*/*access_token*.txt
+*/*refresh_token*.txt
+*/*oauth2_token*.txt
+
+# Logs
+logs/
+*.log
+webhook_debug.log
+debug.log
+
+# Processed events tracking
+processed_events.json
+
+# Shell scripts (optional if private/local)
+start_bot.sh
+
+# macOS system files
+.DS_Store
+EOF
+
+#Other
+docker_plan.md
+
+# OS-specific files
+.DS_Store

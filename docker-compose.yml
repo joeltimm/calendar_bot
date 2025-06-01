@@ -1,0 +1,24 @@
+services:
+  calendar_bot:
+    build: . # Build from the Dockerfile in the current directory
+    image: calendar-bot-app # Optional: name the image after build
+    restart: unless-stopped
+    environment:
+      DOTENV_ENCRYPTION_KEY: "hs3-Tvx74Jsrv5mAWPn3_E8doBQ0JTu3CMZYQdZoLDg="
+      ENCRYPTED_ENV_FILE_PATH: /app/secrets/.env.encrypted.bak # <-- Tells the script where to look inside the container
+      PROCESSED_FILE: /app/data/processed_events.json
+    ports:
+      - "5001:5000" # Map host port 5001 to container port 5000 (where Gunicorn listens)
+    volumes:
+      # This maps the named volumes (defined below) to paths inside the container
+      - calendar_bot_auth:/app/common/auth
+      - calendar_bot_logs:/app/logs
+      - calendar_bot_data:/app/data
+    networks: # Add this service to a custom network
+      - calendar_bot_network
+
+# This top-level 'volumes' section DEFINES the named volumes
+volumes:
+  calendar_bot_auth: {} # The {} means use default driver and options
+  calendar_bot_logs: {}
+  calendar_bot_data: {}

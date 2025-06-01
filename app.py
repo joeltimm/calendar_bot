@@ -19,7 +19,16 @@ from utils.logger import logger
 from utils.health import send_health_ping
 
 # --- Load Environment Variables ---
-PROCESSED_FILE = os.getenv("PROCESSED_FILE", "processed_events.json")
+APP_ROOT = Path(__file__).resolve().parent # Should be /app in container
+DEFAULT_DATA_DIR = APP_ROOT / "data"
+DEFAULT_PROCESSED_FILE = DEFAULT_DATA_DIR / "processed_events.json"
+# Ensure data directory exists early
+DEFAULT_DATA_DIR.mkdir(parents=True, exist_ok=True) # Moved directory creation here
+
+PROCESSED_FILE_PATH_STR = os.getenv("PROCESSED_FILE", str(DEFAULT_PROCESSED_FILE))
+PROCESSED_FILE = Path(PROCESSED_FILE_PATH_STR) # Used by load_processed/save_processed in process_event.py
+
+
 POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "15"))
 SOURCE_CALENDARS = [c.strip() for c in os.getenv("SOURCE_CALENDARS", "").split(",") if c.strip()]
 
@@ -114,17 +123,17 @@ scheduler.add_job(poll_calendar, 'interval', minutes=POLL_INTERVAL_MINUTES)
 scheduler.add_job(send_health_ping, 'cron', hour=8)
 scheduler.start()
 
-# --- Webhook Route ---
+# --- Webhook Route --- 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     logger.info("📩 Webhook received!")
     channel_id = request.headers.get('X-Goog-Channel-ID')
     resource_state = request.headers.get('X-Goog-Resource-State')
     
-    expected_channel_id = os.getenv("EXPECTED_CHANNEL_ID")
-    if expected_channel_id and channel_id != expected_channel_id:
-        logger.warning(f"⚠️ Invalid webhook Channel ID: {channel_id}")
-        return "Unauthorized", 403
+    #expected_channel_id = os.getenv("EXPECTED_CHANNEL_ID")
+    #if expected_channel_id and channel_id != expected_channel_id:
+    #    logger.warning(f"⚠️ Invalid webhook Channel ID: {channel_id}")
+    #    return "Unauthorized", 403
 
     if resource_state != "exists":
         logger.info(f"📭 Ignoring webhook with state: {resource_state}")

@@ -14,8 +14,6 @@ services:
       - calendar_bot_auth:/app/common/auth
       - calendar_bot_logs:/app/logs
       - calendar_bot_data:/app/data
-    networks: # Add this service to a custom network
-      - calendar_bot_network
 
 # This top-level 'volumes' section DEFINES the named volumes
 volumes:

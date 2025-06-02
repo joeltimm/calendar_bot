@@ -1,257 +1,206 @@
-# 📅 Calendar Bot
-A robust automation script that listens for Google Calendar push notifications (webhooks) and/or polls periodically. It can automatically invite a configured email address to newly created events, supports multiple Google Calendar accounts, uses secure environment configuration, provides email error notifications, and is designed for headless server operation.
+# 📅 Calendar Bot (Dockerized)
 
-📝 **Last Updated:** 2025-06-01 (Reflects refined token management, utils, Tailscale Funnel for webhooks, and improved deployment setup)
+A robust automation script that listens for Google Calendar push notifications (webhooks) and/or polls periodically. It automatically invites a configured email address to newly created events, supports multiple Google Calendar accounts, uses secure environment configuration via an encrypted file, provides email error notifications, and is designed for reliable headless server operation using Docker.
+
+📝 **Last Updated:** June 2, 2025 (Reflects Docker deployment with Cloudflare Tunnel and custom domain for webhooks)
 
 ---
 
 🚀 **Features**
+
 * ✅ Automatically detects and processes new Google Calendar events via **polling** and real-time **webhooks**.
-* ✉️ Invites a configured email address to processed events (logic in `utils/process_event.py`).
+* 🐳 **Dockerized Application:** Deployed using Docker and Docker Compose for consistency, portability, and easy management.
+    * Includes `calendar_bot` application container (Flask + Gunicorn).
+    * Includes `cloudflared_tunnel` container for secure webhook exposure.
+* 🌐 **Webhook Integration via Cloudflare Tunnel & Custom Domain:**
+    * Uses a Cloudflare Named Tunnel to securely expose the webhook endpoint.
+    * Integrates with your custom domain (e.g., `DOMAIN.COM`) for a stable, professional webhook URL (e.g., `https://calendarwebhook.DOMAIN.COM/webhook`).
+    * No need to open ports on your router/firewall.
 * 🔄 **Refined Token Management:**
-    * Supports multiple Google accounts (e.g., `joeltimm@gmail.com`, `tsouthworth@gmail.com`).
-    * `joeltimm@gmail.com` uses a single combined token for both Gmail API (sending error/health emails) and Google Calendar API access.
-    * Other accounts (e.g., `tsouthworth@gmail.com`) use dedicated Calendar API tokens.
-    * Streamlined and robust token generation script (`scripts/generate_google_tokens.py`) using multi-port authorization.
+    * Supports multiple Google accounts (e.g., `CALENDAR1@gmail.com`, `CALENDAR2@example.com`).
+    * `CALENDAR1@gmail.com` uses a single combined token for both Gmail API (sending error/health emails) and Google Calendar API access.
+    * Other accounts use dedicated Calendar API tokens.
+    * Streamlined token generation script (`scripts/generate_google_tokens.py`) runnable inside the Docker container.
 * ⚙️ **Modular Utilities:**
-    * `common/credentials.py`: For loading OAuth2 tokens for Gmail and Calendar.
+    * `common/credentials.py`: For loading OAuth2 tokens.
     * `utils/google_utils.py`: For building Google API service objects per user.
     * `utils/email_utils.py`: For sending notifications via Gmail API.
     * `utils/process_event.py`: Core event handling logic with duplicate prevention.
-    * `utils/logger.py`: Configures robust, rotating file and console logging for the application.
+    * `utils/logger.py`: Configures robust, rotating file and console logging.
     * `utils/health.py`: Sends daily health pings via email.
 * 🔐 **Secure Configuration:**
-    * `encrypted_env_loader.py`: Loads sensitive configurations from an encrypted `.env.encrypted.bak` file.
-    * Requires `DOTENV_ENCRYPTION_KEY` in the runtime environment for decryption.
-    * Supports configurable path for the encrypted environment file via `ENCRYPTED_ENV_FILE_PATH`.
-* 💾 Tracks processed event IDs in `data/processed_events.json` (configurable) to avoid duplicates.
+    * `encrypted_env_loader.py`: Loads sensitive configurations from an encrypted `secrets/.env.encrypted.bak` file.
+    * Requires `DOTENV_ENCRYPTION_KEY` environment variable for decryption.
+    * Path to encrypted file configurable via `ENCRYPTED_ENV_FILE_PATH`.
+* 💾 **Persistent Data:** Uses Docker volumes to persist OAuth tokens, processed event lists, and application logs across container restarts.
 * 💪 Retry logic with exponential backoff (`tenacity`) for Google API calls.
-* 🖥️ Deployable as a `systemd` service using Gunicorn, with environment variables managed correctly.
-* 🌐 **Webhook Integration via Tailscale Funnel:** Enables secure, public webhook endpoint without opening router ports, providing a stable URL.
-* 📈 Sends daily health pings via email (configurable).
+* 📈 Sends daily health pings via email.
 * ✅ Includes a credential testing script (`tests/test_credentials.py`).
 
 ---
 
 📁 **Project Structure**
-(Assuming project root is `/home/YOUR_USER/calendar_bot/`)
 
 calendar_bot/
 ├── app.py                     # Main Flask application, scheduler, webhook endpoint
+├── Dockerfile                 # Instructions to build the calendar_bot Docker image
+├── docker-compose.yml         # Defines services (calendar_bot, cloudflared_tunnel), networks, volumes
 ├── encrypted_env_loader.py    # Handles decryption of .env.encrypted file
 ├── secrets/                   # Contains encrypted environment file
-│   └── .env.encrypted.bak     # Your encrypted environment file
+│   └── .env.encrypted.bak     # Your encrypted environment file (copied into image)
 ├── .env.example               # Example structure for environment variables (before encryption)
 ├── requirements.txt           # Python dependencies
-├── gunicorn_config.py         # Gunicorn configuration file for bind, workers, etc.
+├── gunicorn_config.py         # Gunicorn configuration file
 ├── common/
 │   ├── credentials.py         # Loads OAuth2 tokens
-│   └── auth/                  # Stores credential and token JSON files (MUST be .gitignored!)
-│       ├── google_credentials_joeltimm.json     # OAuth Client ID for joeltimm (Gmail & Calendar)
-│       ├── calendar_credentials_tsouthworth.json # OAuth Client ID for tsouthworth (Calendar)
-│       ├── token_joeltimm.json                  # Combined token for joeltimm (Gmail & Calendar)
-│       └── token_tsouthworth.json               # Calendar token for tsouthworth
+│   └── auth/                  # (This path is inside a Docker volume for tokens)
+│       ├── google_credentials_CALENDAR1.json     # (Copied into image for token generation)
+│       ├── calendar_credentials_CALENDAR2.json # (Copied into image for token generation)
+│       ├── token_CALENDAR1.json                  # (Generated into volume)
+│       └── token_CALENDAR2.json               # (Generated into volume)
 ├── utils/
-│   ├── email_utils.py         # Handles sending emails
-│   ├── google_utils.py        # Builds Google API services
-│   ├── process_event.py       # Core event processing logic
-│   ├── logger.py              # Logging configuration
-│   └── health.py              # Health ping logic
-├── logs/
-│   └── calendar_bot.log       # Rotating log file (created automatically by logger.py)
+│   ├── # ... (all utility Python files) ...
+├── logs/                        # (This path is inside a Docker volume for log files)
+│   └── calendar_bot.log
 ├── scripts/
-│   ├── generate_google_tokens.py # Unified script to generate all OAuth tokens
-│   └── manage_webhooks.py     # Script to register/stop Google Calendar push notification channels
+│   ├── generate_google_tokens.py # Script to generate all OAuth tokens (runnable in container)
+│   └── manage_webhooks.py     # Script to register/stop Google Calendar webhooks (runnable on host or in container)
 ├── tests/
-│   └── test_credentials.py    # Script to test credential loading functionality
-└── data/                        # Directory for storing runtime data
-└── processed_events.json  # Tracks processed events (created automatically by app.py)
+│   └── test_credentials.py    # Script to test credential loading
+└── data/                        # (This path is inside a Docker volume for processed_events.json)
+└── processed_events.json
 
+*(Note: `common/auth/*_credentials_*.json` are copied into the image if `scripts/generate_google_tokens.py` is run inside the container for initial setup. The generated `token_*.json` files live in a Docker volume mapped to `/app/common/auth`.)*
 
 ---
 
 🔧 **Configuration**
 
-Create an `.env` file with your settings, then encrypt it (e.g., using a helper script with Fernet) into `secrets/.env.encrypted.bak`. The `DOTENV_ENCRYPTION_KEY` must be set in the runtime environment (e.g., systemd service file, Docker environment) for `encrypted_env_loader.py` to decrypt it.
+Sensitive configurations are managed via an encrypted environment file (`secrets/.env.encrypted.bak`). The `DOTENV_ENCRYPTION_KEY` must be provided as an environment variable to the `calendar_bot` Docker container (typically in `docker-compose.yml`).
 
 **Example `.env` contents (before encryption):**
 ```env
 # --- Core Application Settings ---
-INVITE_EMAIL=joelandtaylor@gmail.com # Default email to invite to events
-PROCESSED_FILE=data/processed_events.json # Relative to app root, or an absolute path
+INVITE_EMAIL=EMAIL@gmail.com
+PROCESSED_FILE=/app/data/processed_events.json # Path inside the Docker container
 POLL_INTERVAL_MINUTES=15
-SOURCE_CALENDARS=joeltimm@gmail.com,tsouthworth@example.com # Comma-separated Google account emails
+SOURCE_CALENDARS=CALENDAR1@gmail.com,CALENDAR2@example.com
 
-# --- Email Notification Settings (uses joeltimm@gmail.com's token for sending) ---
-SENDER_EMAIL=joeltimm@gmail.com      # Must match the account for token_joeltimm.json
-TO_EMAIL=your_alert_email@example.com # Where to send error/health emails
+# --- Email Notification Settings (uses CALENDAR1@gmail.com's token for sending) ---
+SENDER_EMAIL=CALENDAR1@gmail.com
+TO_EMAIL=your_alert_email@example.com
 
 # --- Operational Flags ---
-# ENABLE_AUTO_INVITE=true # If used by process_event.py logic
-DEBUG_LOGGING=false     # Set to true for verbose DEBUG level logs from utils.logger
+DEBUG_LOGGING=false
 
-# --- Webhook Specific (if using webhooks) ---
-# EXPECTED_CHANNEL_ID=your-google-calendar-channel-id # Optional, currently commented out in app.py for multi-calendar use
+# --- Path for Encrypted Env File (inside container) ---
+ENCRYPTED_ENV_FILE_PATH=/app/secrets/.env.encrypted.bak # Must match Dockerfile COPY destination
 
-# --- Path for Encrypted Env File (Optional Override for encrypted_env_loader.py) ---
-# ENCRYPTED_ENV_FILE_PATH=secrets/.env.encrypted.bak # Default is relative to encrypted_env_loader.py
-
-# --- Gunicorn Settings (Optional Overrides for gunicorn_config.py) ---
+# --- Gunicorn Settings (Optional Overrides for gunicorn_config.py if read from env) ---
 # GUNICORN_WORKERS=1
-# GUNICORN_WORKER_CLASS=sync
 # GUNICORN_TIMEOUT=120
 
-Note on DOTENV_ENCRYPTION_KEY: This key is critical and is used to decrypt your secrets/.env.encrypted.bak file. It must be provided as an environment variable to the running application. Do not store the key itself in any version-controlled file.
+DOTENV_ENCRYPTION_KEY is NOT stored in this file.
 
 📦 Dependencies
 
-Ensure your requirements.txt is up-to-date by running this in your activated virtual environment:
-Bash
+Listed in requirements.txt. Key dependencies include: Flask, gunicorn, apscheduler, google-api-python-client, google-auth-oauthlib, python-dotenv (if used by encrypted_env_loader), tenacity, requests, cryptography.
 
-source venv/bin/activate
-pip freeze > requirements.txt
+⚙️ Deployment Steps (Docker with Cloudflare Tunnel)
 
-Key dependencies include: Flask, gunicorn, apscheduler, google-api-python-client, google-auth-oauthlib, python-dotenv (if your encrypted_env_loader or local dev flow uses it), tenacity, requests, cryptography (for Fernet encryption/decryption).
+I. Initial One-Time Setup:
 
-⚙️ Setup Instructions (for Host/Systemd Deployment)
+    Prerequisites:
+        Ensure Docker and Docker Compose are installed on your server.
+        Clone the project: git clone <your_repo_url> calendar_bot && cd calendar_bot
+        Your custom domain (e.g., DOMAIN.COM) must be added to your Cloudflare account and active (DNS nameservers pointed to Cloudflare).
 
-    Clone & Install:
+    Google API Client Credentials:
+        Follow instructions in the previous README version (or DEPLOYMENT.md's "Initial Setup") to create OAuth 2.0 "Desktop app" client IDs for CALENDAR1@gmail.com (Gmail & Calendar) and CALENDAR2@example.com (Calendar).
+        Save them as common/auth/google_credentials_CALENDAR1.json and common/auth/calendar_credentials_CALENDAR2.json respectively. Ensure common/auth/ is in your .gitignore.
+
+    Prepare and Encrypt Environment Variables:
+        Create a plain-text .env file in the project root with all necessary configurations (see example above).
+        Generate a strong DOTENV_ENCRYPTION_KEY (e.g., using python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"). Save this key securely (e.g., in a password manager).
+        Set this key in your current shell: export DOTENV_ENCRYPTION_KEY="your_key_here"
+        Run your encrypt_env.py script (ensure it saves to secrets/.env.encrypted.bak): python3 encrypt_env.py
+
+    Cloudflare Tunnel Setup:
+        Login cloudflared: On your server (or a machine that can access your Cloudflare account): cloudflared login. Select DOMAIN.COM when prompted in the browser.
+        Create Named Tunnel: In Cloudflare Zero Trust dashboard (Access > Tunnels), click "+ Create a tunnel," choose "Cloudflared," name it (e.g., calendarbot-app-tunnel), and save.
+        Get Tunnel Token: Copy the token from the cloudflared tunnel run --token <YOUR_TOKEN> command provided by the dashboard.
+
+    Configure docker-compose.yml:
+        Ensure docker-compose.yml is in your project root.
+        Paste your DOTENV_ENCRYPTION_KEY and Cloudflare Tunnel Token into the respective placeholders.
+        Verify service names, paths, and volume definitions are correct (refer to DEPLOYMENT.md provided previously).
+
+    Configure Public Hostname for Tunnel:
+        In the Cloudflare Zero Trust dashboard, for your named tunnel, go to "Public Hostnames."
+        Add a hostname:
+            Subdomain: e.g., calendarwebhook
+            Domain: DOMAIN.COM
+            Service: HTTP -> http://calendar_bot:5000
+        Save. Your public webhook base URL will be https://calendarwebhook.DOMAIN.COM.
+
+II. First-Time Token Generation & Webhook Registration:
+
+    Build and Start Services (Detached Mode):
     Bash
 
-git clone <your_repo_url> calendar_bot
-cd calendar_bot
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-# Create necessary directories
-mkdir -p common/auth secrets data logs
+docker-compose up --build -d
 
-Google API Setup:
+Verify containers are running: docker-compose ps
 
-    In Google Cloud Console: Enable "Google Calendar API" and "Gmail API".
-    Create OAuth 2.0 Client IDs (type: "Desktop app"):
-        One for joeltimm@gmail.com (for combined Gmail & Calendar). Save JSON as common/auth/google_credentials_joeltimm.json.
-        One for tsouthworth@gmail.com (for Calendar). Save JSON as common/auth/calendar_credentials_tsouthworth.json.
-    Ensure these *_credentials_*.json files are in common/auth/. Add common/auth/ to your .gitignore file!
+Generate Google OAuth Tokens (Inside Container):
 
-Generate OAuth Tokens:
-
-    The scripts/generate_google_tokens.py script is configured to use these credential files.
-    Run on a machine with a web browser:
+    You may need to temporarily add port mappings (e.g., "8888:8888", "8889:8889") to the calendar_bot service in docker-compose.yml if generate_google_tokens.py uses run_local_server. If so, run docker-compose up -d --force-recreate calendar_bot after adding them.
+    Execute the script:
     Bash
 
-    python3 scripts/generate_google_tokens.py
+    docker-compose exec calendar_bot python3 scripts/generate_google_tokens.py
 
-    Follow the prompts to authorize each service. Generated tokens (token_joeltimm.json, token_tsouthworth.json) will be saved in common/auth/.
+    Follow browser authentication prompts. Tokens will be saved to the calendar_bot_auth volume.
+    Remove temporary port mappings from docker-compose.yml afterwards and run docker-compose up -d --force-recreate calendar_bot again.
 
-Configure Environment:
+Register Google Calendar Webhooks:
 
-    Create your plain-text .env file in the project root with all necessary variables (see "Configuration" section).
-    Set your desired DOTENV_ENCRYPTION_KEY as an environment variable in your current shell: export DOTENV_ENCRYPTION_KEY="your_very_strong_secret_key"
-    Run a script (like the encrypt_env.py we discussed) to encrypt your .env file into secrets/.env.encrypted.bak. Make sure this secrets/.env.encrypted.bak is in place.
-    Remember the DOTENV_ENCRYPTION_KEY! You'll need it for deployment.
-
-Test Credentials & Basic Functionality:
-Bash
-
-# Ensure DOTENV_ENCRYPTION_KEY is set in your current shell
-export DOTENV_ENCRYPTION_KEY="your_very_strong_secret_key"
-python3 tests/test_credentials.py # Check token loading
-# Optionally, run app.py directly for a quick test of polling, etc.
-# python3 app.py 
-
-Webhook Setup (If Using Push Notifications):
-
-    a. Set up Tailscale Funnel on your Host Server:
-        Ensure Tailscale is installed and your server (joelrockslinuxserver) is connected.
-        Clear any old serve configurations: sudo tailscale serve reset
-        Enable Funnel for your bot's host port (e.g., 5001 if Docker maps to it, or the port Gunicorn uses if run directly on host):
-        Bash
-
-    sudo tailscale funnel --bg 5001 on 
-
-    (Replace 5001 with the actual host port Gunicorn will listen on or be mapped to).
-    Note your public Funnel URL: https://joelrockslinuxserver.your-tailnet-name.ts.net (replace with your actual node and tailnet names).
-
-b. Register Webhooks with Google Calendar:
-
-    Run the manage_webhooks.py script:
+    Activate your host's Python virtual environment (if manage_webhooks.py is run from host):
     Bash
 
-            # Ensure DOTENV_ENCRYPTION_KEY is set if manage_webhooks.py needs to load tokens that require app env vars
-            python3 scripts/manage_webhooks.py
+        source venv/bin/activate 
+        python3 scripts/manage_webhooks.py
 
-            For each calendar (Joeltimm's, Tsouthworth's), choose option "1" and provide:
-                The respective token file (e.g., token_joeltimm.json).
-                The calendar ID (primary or email).
-                Your full Tailscale Funnel webhook URL (e.g., https://joelrockslinuxserver.your-tailnet-name.ts.net/webhook).
-            Confirm successful channel creation.
+        Use your full public webhook URL (e.g., https://calendarwebhook.DOMAIN.COM/webhook).
+        Register for all SOURCE_CALENDARS. Monitor docker-compose logs -f calendar_bot and docker-compose logs -f cloudflared_tunnel during registration for validation pings.
+        (Alternatively, if manage_webhooks.py is in the image and can access tokens from the volume, run via docker-compose exec calendar_bot ...).
 
-🖥️ Deployment (systemd + Gunicorn on Host)
+III. Normal Operation:
 
-Example /etc/systemd/system/calendar_bot.service file:
-Ini, TOML
+    Start all services: docker-compose up -d
+    The bot will now poll and receive webhooks.
 
-[Unit]
-Description=Calendar Bot Service
-After=network.target tailscaled.service # Ensure Tailscale is up for Funnel
-Wants=tailscaled.service
+📊 Monitoring & Management
 
-[Service]
-User=YOUR_USER # User owning the calendar_bot directory
-Group=YOUR_GROUP # Group for that user
-WorkingDirectory=/home/YOUR_USER/calendar_bot
+    Application Logs: docker-compose logs -f calendar_bot
+    Cloudflare Tunnel Logs: docker-compose logs -f cloudflared_tunnel
+    Persisted File Logs: Inspect the calendar_bot_logs Docker volume on the host.
+    Container Status: docker-compose ps
+    Health Check: https://calendarwebhook.DOMAIN.COM/health
 
-# Path to virtual environment's Python and Gunicorn
-Environment="PATH=/home/YOUR_USER/calendar_bot/venv/bin"
-# CRITICAL: Provide the decryption key for your secrets/.env.encrypted.bak file
-Environment="DOTENV_ENCRYPTION_KEY=your_actual_strong_secret_key_here"
-# Optional: Define Gunicorn settings via environment variables (will be read by gunicorn_config.py)
-# Environment="GUNICORN_WORKERS=1" 
+🔄 Stopping & Updating
 
-ExecStart=/home/YOUR_USER/calendar_bot/venv/bin/gunicorn --config /home/YOUR_USER/calendar_bot/gunicorn_config.py app:app
-Restart=always
-RestartSec=10
+    Stop: docker-compose down
+    Update App: git pull, then docker-compose build calendar_bot, then docker-compose up -d --force-recreate calendar_bot (or all services).
 
-[Install]
-WantedBy=multi-user.target
+💾 Data Persistence
 
-Enable and start:
-Bash
-
-sudo systemctl daemon-reload
-sudo systemctl enable calendar_bot.service
-sudo systemctl start calendar_bot.service
-
-View logs:
-Bash
-
-sudo journalctl -u calendar_bot.service -f
-# Also check application logs in /home/YOUR_USER/calendar_bot/logs/calendar_bot.log
-
-📬 Error Alerts
-
-    The bot sends error alerts and daily health pings via Gmail (using joeltimm@gmail.com's token) to the TO_EMAIL configured in your environment.
-
-🔁 Restarting After Code Changes (Systemd)
-Bash
-
-cd /home/YOUR_USER/calendar_bot
-git pull
-# source venv/bin/activate
-# pip install -r requirements.txt # If dependencies changed
-sudo systemctl restart calendar_bot.service
-
-🔭 Next Steps
-
-    🐳 Docker container support!
-    🔐 Refine Webhook security (e.g., validating X-Goog-Channel-Token if you set one during watch registration).
-    📊 Dashboard or status page.
-    ✅ Expand unit/integration tests.
+    calendar_bot_auth volume: OAuth tokens (/app/common/auth/).
+    calendar_bot_logs volume: Log files (/app/logs/).
+    calendar_bot_data volume: processed_events.json (/app/data/).
 
 🛡️ Security Notes
 
-    Use a strong, unique DOTENV_ENCRYPTION_KEY.
-    Never commit to Git: common/auth/ content (tokens, credentials), secrets/.env.encrypted.bak, unencrypted .env files, or your DOTENV_ENCRYPTION_KEY itself. Your .gitignore should cover these.
-    Restrict file permissions on sensitive files and your .env.encrypted.bak on the server.
-    Regularly review and update dependencies.
+    Safeguard your DOTENV_ENCRYPTION_KEY and Cloudflare Tunnel Token.
+    Ensure .gitignore excludes secrets/.env.encrypted.bak, .env, and common/auth/ (for local copies).
+    The Docker image itself will contain secrets/.env.encrypted.bak and common/auth/*_credentials_*.json - keep your Docker images in a private registry if this is a concern, or explore runtime secret injection methods for production. For a personal server, this is often acceptable if host access is secured

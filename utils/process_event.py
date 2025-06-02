@@ -6,14 +6,18 @@ from pathlib import Path
 
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from googleapiclient.errors import HttpError
-from dotenv import load_dotenv
 
 from utils.logger import logger
 
 # --- Load Environment Variables ---
-load_dotenv()
-INVITE_EMAIL   = os.getenv('INVITE_EMAIL', 'joelandtaylor@gmail.com')
+INVITE_EMAIL   = os.getenv('INVITE_EMAIL')
+if not INVITE_EMAIL:
+    err_msg = "CRITICAL: Required environment variable 'INVITE_EMAIL' is not set. Please define it in your encrypted .env file."
+    logger.critical(err_msg) # Log the error
+    raise ValueError(err_msg) # Stop the application from starting incorrectly
+
 PROCESSED_FILE = Path(os.getenv('PROCESSED_FILE', 'processed_events.json'))
+logger.info(f"PROCESS_EVENT.PY: Using PROCESSED_FILE path: {PROCESSED_FILE.resolve()}")
 
 def load_processed():
     """Load the set of already-processed event IDs."""

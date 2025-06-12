@@ -28,6 +28,7 @@ This application is designed for reliable, persistent operation using a Docker C
 
 ## 📁 Project Structure
 
+```
 calendar_bot/
 ├── app.py                     # Main Flask application, scheduler, webhook endpoint
 ├── Dockerfile                 # Builds the 'calendar_bot' Docker image
@@ -51,6 +52,7 @@ calendar_bot/
 │   └── manage_webhooks.py     # Script to register/stop webhooks
 └── data/                        # (This path is inside a Docker volume)
 └── processed_events.json
+```
 
 > **Note:** `common/auth/google_credentials_*.json` files are copied into the Docker image to allow the token generation script to run inside the container for initial setup. The generated `token_*.json` files live in a persistent Docker volume mapped to `/app/common/auth`.
 

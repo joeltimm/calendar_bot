@@ -9,15 +9,17 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from common.credentials import load_credentials
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
-
-SOURCE_CALENDARS      = [c.strip() for c in os.getenv("SOURCE_CALENDARS", "").split(",") if c]
-
 def build_calendar_service(calendar_id: str):
-    """
-    Build the Calendar service bound to the given calendar_id.
-    """
-    suffix = calendar_id.split("@")[0]  # Extracts 'joeltimm' from 'joeltimm@gmail.com'
-    creds = load_credentials(suffix)
-    logger.info(f"🔧 Building Calendar service for {calendar_id}")
-    return build('calendar', 'v3', credentials=creds)
+
+#    Builds the Calendar service object for a specific user by loading their token.
+#    'calendar_id' is expected to be an email address like 'user@gmail.com'.
+
+    logger.info(f"🔧 Building Calendar service for {calendar_id}...")
+    try:
+        # Extracts 'joeltimm' from 'joeltimm@gmail.com' to match token filename convention
+        suffix = calendar_id.split("@")[0]
+        creds = load_credentials(suffix)
+        return build('calendar', 'v3', credentials=creds)
+    except Exception as e:
+        logger.error(f"❌ Failed to build calendar service for {calendar_id}", exc_info=True)
+        raise # Re-raise the exception to be handled by the polling loop

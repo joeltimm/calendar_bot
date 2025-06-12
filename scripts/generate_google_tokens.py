@@ -1,76 +1,79 @@
+# scripts/generate_google_tokens.py (with full debug logging)
+import logging
+import sys
 import os
-import json
 from pathlib import Path
+
+# --- CONFIGURE VERBOSE LOGGING AT THE VERY TOP ---
+# This MUST run before any other libraries that do networking are imported.
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(levelname)s:%(name)s:%(message)s', # Simpler format for debug
+    stream=sys.stdout
+)
+_logger = logging.getLogger(__name__)
+_logger.info("--- Top-level DEBUG logging configured ---")
+
+# --- Now import the Google libraries ---
 from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-import time
 
-auth_dir = Path(__file__).resolve().parents[1] / "common" / "auth"
+_logger.info("--- Google libraries imported ---")
 
-SERVICES = {
-    "joeltimm_google_access": {
-        "client_secrets": auth_dir / "google_credentials_joeltimm.json",
-        "token_file":    auth_dir / "joeltimm_combined_token.json",
-        "scopes": [
-            "https://www.googleapis.com/auth/gmail.send",
-            "https://www.googleapis.com/auth/calendar"
-        ]
-    },
-    "calendar_tsouthworth": {
-        "client_secrets": auth_dir / "calendar_credentials_tsouthworth.json",
-        "token_file":     auth_dir / "calendar_token_tsouthworth.json",
-        "scopes":         ["https://www.googleapis.com/auth/calendar"]
-    }
-}
 
-BASE_PORT = 8888 # Starting port
+def authorize_local_server(name, cfg, port_number):
+    """Authorizes a service using the local server (loopback) flow."""
+    _logger.info(f"--- Authorizing '{name}' using port {port_number} ---")
 
-def authorize(name, cfg, port_number): # port_number is passed here
-    print(f"\n🔐 Authorizing {name} using port {port_number}…")
-    if not cfg["client_secrets"].exists():
-        print(f"🚨 ERROR: Client secrets file not found for {name} at {cfg['client_secrets']}")
-        return # Return None or raise an error if you want to stop the script
+    auth_dir = Path(__file__).resolve().parents[1] / "common" / "auth"
+    client_secrets_path = auth_dir / cfg["client_secrets_filename"]
+    token_file_path = auth_dir / cfg["token_filename"]
 
-    # Ensure the target directory for the token exists
-    cfg["token_file"].parent.mkdir(parents=True, exist_ok=True)
+    if not client_secrets_path.exists():
+        _logger.error(f"Client secrets file not found for {name} at {client_secrets_path}")
+        return False
 
     flow = InstalledAppFlow.from_client_secrets_file(
-        str(cfg["client_secrets"]),
+        str(client_secrets_path),
         cfg["scopes"]
     )
-    
-    print(f"Attempting to start local server on http://localhost:{port_number}/")
-    creds = flow.run_local_server(
-        port=port_number, # Use the unique port for this service
-        authorization_prompt_message="🔑 Open this URL:\n{url}\n",
-        success_message="✅ Authentication successful! You may close this browser tab/window.",
-        open_browser=False
-    )
-    
-    with open(cfg["token_file"], "w") as f:
+
+    _logger.info("Starting local server flow...")
+    creds = flow.run_local_server(port=port_number, open_browser=False)
+    _logger.info("Local server flow finished, credentials obtained.")
+
+    token_file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(token_file_path, "w") as f:
         f.write(creds.to_json())
-    print(f"✅ Saved token for {name} to {cfg['token_file'].name}")
-    return True # Indicate success
+
+    _logger.info(f"✅ Token for '{name}' saved successfully to {token_file_path.name}")
+    return True
 
 if __name__ == "__main__":
-    auth_dir.mkdir(parents=True, exist_ok=True)
-    print(f"ℹ️  Ensuring auth directory exists at: {auth_dir}")
+    SERVICES = {
+        "joeltimm_google_access": {
+            "client_secrets_filename": "google_credentials_joeltimm.json",
+            "token_filename":          "token_joeltimm.json",
+            "scopes": [
+                "https://www.googleapis.com/auth/gmail.send",
+                "https://www.googleapis.com/auth/calendar"
+            ]
+        },
+        "calendar_tsouthworth": {
+            "client_secrets_filename": "calendar_credentials_tsouthworth.json",
+            "token_filename":          "token_tsouthworth.json",
+            "scopes":                  ["https://www.googleapis.com/auth/calendar"]
+        }
+    }
 
-    for i, (name, cfg) in enumerate(SERVICES.items()):
-        current_port = BASE_PORT + i
-        
-        # **CRITICAL STEP BEFORE EACH AUTHORIZATION ATTEMPT:**
-        print(f"\n--- Preparing for service: {name} on port {current_port} ---")
-        print(f"❗️ Please ensure port {current_port} is NOT in use by another application.")
-        print(f"❗️ Run this in another terminal: sudo lsof -i :{current_port}  OR  ss -tulnp | grep ':{current_port}'")
-        input(f"👉 Press Enter to continue once you've confirmed port {current_port} is free...") # Pauses for manual check
+    _logger.info("--- Starting Google OAuth Token Generation (Loopback Server Flow w/ DEBUG) ---")
+    base_port = 8888
 
-        if not authorize(name, cfg, current_port):
-            print(f"🛑 Failed to authorize {name}. Please check errors above.")
-            # Decide if you want to stop the script or try the next service
-            # break # Uncomment to stop if one fails
-        
-        if name != list(SERVICES.keys())[-1]: # If it's not the last service
-            print(f"ℹ️  Pausing for a few seconds before next service...")
-            time.sleep(5) # Increased delay just in case, though unique ports are key
+    for i, (service_name, service_config) in enumerate(SERVICES.items()):
+        current_port = base_port + i
+        if not authorize_local_server(service_name, service_config, current_port):
+            _logger.error(f"Failed to authorize '{service_name}'. Stopping.")
+            break
+        _logger.info("-" * 20)
+
+    _logger.info("--- Token generation process finished. ---")

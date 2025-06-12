@@ -33,30 +33,24 @@ calendar_bot/
 ├── Dockerfile                 # Builds the 'calendar_bot' Docker image
 ├── docker-compose.yml         # Defines services, networks, and volumes
 ├── secrets/
-│   ├── .env.encrypted.bak     # Your encrypted environment file
-│   └── (service-account-key.json was removed)
+│   └── .env.encrypted.bak     # Your encrypted environment file
 ├── .env.example               # Template for environment variables
 ├── requirements.txt           # Python dependencies
-├── gunicorn_config.py         # Gunicorn configuration
+├── gunicorn_config.py         # Gunicorn configuration file
 ├── common/
-│   ├── credentials.py         # Loads Google User OAuth2 tokens
-│   └── auth/                  # (Path inside a Docker volume for tokens)
-│       ├── google_credentials_...json # (Copied into image for token generation)
-│       └── token_...json              # (Generated into volume)
+│   └── credentials.py         # Loads Google User OAuth2 tokens
 ├── utils/
 │   ├── email_utils.py         # Sends notifications via SendGrid
 │   ├── google_utils.py        # Builds Google API service objects
 │   ├── process_event.py       # Core event-handling logic
 │   ├── logger.py              # Application logging configuration
 │   ├── health.py              # Health check logic
-│   └── tenacity_utils.py      # Callbacks for retry logic (NEW)
+│   └── tenacity_utils.py      # Callbacks for retry logic
 ├── scripts/
 │   ├── generate_google_tokens.py # Script to generate user OAuth tokens
 │   └── manage_webhooks.py     # Script to register/stop webhooks
-├── tests/
-│   └── test_credentials.py    # Script to test credential loading
-└── data/                        # (Path inside a Docker volume)
-    └── processed_events.json
+└── data/                        # (This path is inside a Docker volume)
+└── processed_events.json
 
 > **Note:** `common/auth/google_credentials_*.json` files are copied into the Docker image to allow the token generation script to run inside the container for initial setup. The generated `token_*.json` files live in a persistent Docker volume mapped to `/app/common/auth`.
 

@@ -15,6 +15,8 @@ venv/
 
 # Auth tokens and credentials
 common/auth/google_credentials_*.json
+secrets/
+secrets/*
 token_*.json
 */*token*.json
 */*credentials*.json

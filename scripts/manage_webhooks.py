@@ -1,5 +1,6 @@
 import os
 import uuid
+from pathlib import Path
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow # Keep for potential re-auth logic if needed
 from google.auth.transport.requests import Request
@@ -9,7 +10,7 @@ from googleapiclient.errors import HttpError
 # --- Configuration ---
 # Path to the directory where your token JSON files are stored (e.g., common/auth/)
 # Adjust if your script is in a different location relative to your tokens
-TOKEN_DIR = os.path.join(os.path.dirname(__file__), 'common', 'auth')
+TOKEN_DIR = Path(__file__).resolve().parent.parent / "common" / "auth"
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def load_credentials(token_filename):

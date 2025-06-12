@@ -14,6 +14,8 @@ venv/
 .pytest_cache/
 
 # Auth tokens and credentials
+common/auth/google_credentials_*.json
+token_*.json
 */*token*.json
 */*credentials*.json
 */*gmail_credentials*.json

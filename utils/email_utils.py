@@ -1,64 +1,44 @@
-# calendar_bot/utils/email_utils.py
-from encrypted_env_loader import load_encrypted_env
-load_encrypted_env()
+# ~/calendar_bot/utils/email_utils.py (Final Version)
 
 import os
-import base64
-import requests
-
 from utils.logger import logger
-from pathlib import Path
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
- 
-from common.credentials import load_gmail_credentials
 
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
-TO_EMAIL    = os.getenv("TO_EMAIL")
-
-if not SENDER_EMAIL or not TO_EMAIL:
-    raise ValueError("Missing required environment variables: SENDER_EMAIL and TO_EMAIL")
-
-# Gmail API scopes
-SCOPES = ['https://www.googleapis.com/auth/gmail.send']
-
-def get_access_token():
-    creds = load_gmail_credentials()
-    if not creds or not creds.valid:
-        raise Exception("Invalid Gmail credentials.")
-    return creds.token
+try:
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail
+except ImportError:
+    logger.critical("The 'sendgrid' library is not installed. Email sending will fail. Please run 'pip install sendgrid'.")
+    SendGridAPIClient = None
 
 def send_error_email(subject: str, body: str):
-    """
-    Send an error notification email via the Gmail API.
-    """
+    """Sends a notification email via the SendGrid API."""
+    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+    SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+    TO_EMAIL = os.getenv("TO_EMAIL")
+
+    if not SendGridAPIClient:
+        logger.error("SendGrid library not available, cannot send email.")
+        return
+
+    if not all([SENDGRID_API_KEY, SENDER_EMAIL, TO_EMAIL]):
+        logger.error("❌ Cannot send email. Missing required environment variables: SENDGRID_API_KEY, SENDER_EMAIL, or TO_EMAIL.")
+        return
+
+    logger.debug(f"Attempting to send email with subject: {subject}")
+    html_body = f"<h2>Calendar Bot Alert</h2><p>{subject}</p><pre style='background-color:#f4f4f4; padding:15px; border-radius:5px;'>{body}</pre>"
+
+    message = Mail(
+        from_email=SENDER_EMAIL,
+        to_emails=TO_EMAIL,
+        subject=f"🚨 Calendar Bot Alert: {subject}",
+        html_content=html_body
+    )
     try:
-        access_token = get_access_token()
-        logger.debug("Sending error email via Gmail API")
-
-        message = MIMEMultipart()
-        message["From"]    = SENDER_EMAIL
-        message["To"]      = TO_EMAIL
-        message["Subject"] = subject
-        message.attach(MIMEText(body, "plain"))
-
-        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-
-        response = requests.post(
-            "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json"
-            },
-            json={"raw": raw_message}
-        )
-
-        if response.status_code != 200:
-            logger.error(f"Failed to send email (status {response.status_code}): {response.text}")
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(message)
+        if 200 <= response.status_code < 300:
+            logger.info(f"✅ Email notification sent successfully to {TO_EMAIL}.")
         else:
-            logger.info("✅ Error email sent successfully.")
-
+            logger.error(f"❌ Failed to send email via SendGrid (status {response.status_code}): {response.body}")
     except Exception as e:
         logger.error(f"Exception in send_error_email: {e}", exc_info=True)

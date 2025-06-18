@@ -66,6 +66,8 @@ This guide covers deploying the application on a Linux server using Docker and D
 
 1.  **Prerequisites:**
     * A server with Docker and Docker Compose installed.
+    * This service depends on a pre-existing Docker bridge network named `shared_network`. Ensure it has been created before deploying this service.
+    * It also requires a Cloudflare Tunnel token to be inserted into the `docker-compose.yml` file.
     * A custom domain (e.g., `joelt.win`) added as an active site in your Cloudflare account.
     * Project code cloned to your server (`git clone ...`).
 

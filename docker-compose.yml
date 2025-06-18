@@ -1,13 +1,16 @@
-#docker-compose.yml
+#calendar_bot docker-compose.yml
 services:
   calendar_bot:
-    build: . # Build from the Dockerfile in the current directory
     image: calendar-bot-app # Optional: name the image after build
+    build: . # Build from the Dockerfile in the current directory
     restart: unless-stopped
+    dns:
+      - 192.168.50.2
     environment:
       DOTENV_ENCRYPTION_KEY: "hs3-Tvx74Jsrv5mAWPn3_E8doBQ0JTu3CMZYQdZoLDg="
       ENCRYPTED_ENV_FILE_PATH: /app/secrets/.env.encrypted.bak # <-- Tells the script where to look inside the container
       PROCESSED_FILE: /app/data/processed_events.json
+      HEALTHCHECK_URL: "https://status.joelt.win/api/push/7GrgCHkzrl?status=up&msg=OK&ping="
     ports:
       - "5001:5000" # Map host port 5001 to container port 5000 (where Gunicorn listens)
     volumes:
@@ -16,7 +19,7 @@ services:
       - calendar_bot_logs:/app/logs
       - calendar_bot_data:/app/data
     networks:
-      - calendar_bot_network
+      - shared_net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
@@ -28,12 +31,14 @@ services:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     command: tunnel --no-autoupdate run --token eyJhIjoiNjAzZmIwN2IwMzAwOWI2ZDZkMWU5NjZkNzBjOWE3ZGQiLCJ0IjoiMDk5MjVhNzQtNjkzZS00OGFjLWE0M2UtNzE4MDQ3ZDAyZmJjIiwicyI6Ik5HSTJaR1ptTVdNdFlXSXlZaTAwWldNd0xUazBZelF0TUdVMU5XUm1PR0UwWVRCaiJ9
-    network_mode: "host"
-#    depends_on:
- #     calendar_bot:
-  #      condition: service_healthy
-  #  networks:
-#      - calendar_bot_network
+    #network_mode: "host"
+    depends_on:
+      calendar_bot:
+        condition: service_healthy
+    dns:
+      - 192.168.50.2
+    networks:
+      - shared_net
 
 # This top-level 'volumes' section DEFINES the named volumes
 volumes:
@@ -42,8 +47,6 @@ volumes:
   calendar_bot_data: {}
 
 networks:
-  calendar_bot_network:
-    driver: bridge
-   # ipam:
-    #  config:
-     #   - subnet: 172.21.0.0/16
+  shared_net:
+    name: shared_network
+    external: true

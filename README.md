@@ -1,28 +1,21 @@
 # 📅 Calendar Bot (Dockerized)
 
-A robust automation script that listens for Google Calendar changes via polling and real-time webhooks. It automatically processes new calendar events based on custom logic, such as inviting a designated user.
+A robust automation script that listens for Google Calendar changes via real-time webhooks. It automatically processes new calendar events based on custom logic, such as inviting a designated user.
 
-This application is designed for reliable, persistent operation using a Docker Compose setup, with a secure webhook endpoint provided by Cloudflare Tunnel and a custom domain.
+This application is designed for reliable, persistent operation using a Docker Compose setup. It runs as a self-contained service and connects to a pre-existing shared Docker network for communication and DNS services, ensuring a modular and portable deployment.
 
-📝 **Last Updated:** June 12, 2025 (Reflects Docker deployment, Service Account for Calendar, and SendGrid for email)
+📝 **Last Updated:** June 18, 2025 (Reflects persistent shared network architecture, `HEALTHCHECK_URL` for Uptime Kuma, and user OAuth flow).
 
 ---
 
 ## 🚀 Core Features
 
-* ✅ **Dual-Mode Operation:** Automatically detects new events via both periodic polling and real-time Google Calendar webhooks.
-* 🐳 **Dockerized Deployment:** Deployed using `Dockerfile` and `docker-compose.yml` for a consistent, portable, and easy-to-manage application environment.
-    * Includes `calendar_bot` application container (Flask + Gunicorn).
-    * Includes `cloudflared_tunnel` container for secure webhook exposure.
-* 🌐 **Secure Webhooks:** Utilizes a Cloudflare Named Tunnel with a custom domain for a stable and secure public webhook URL, eliminating the need to open ports on your router/firewall.
-* 🔑 **Permanent Authentication:**
-    * Uses the standard Google OAuth 2.0 flow for user-based tokens.
-    * Solves the 7-day token expiration issue by removing sensitive scopes, allowing the Google app to be **"Published."**
-* ⚙️ **Robust Error Handling:**
-    * Implements the `tenacity` library to automatically retry temporary Google API errors (like `503 Service Unavailable`) with exponential backoff.
-    * Sends email alerts via a transactional email service **only** if an error persists after all retries, preventing alert spam.
-* ✉️ **Transactional Email:** Uses **SendGrid** for sending reliable error and health notifications, removing the need for sensitive Gmail API scopes.
-* 💾 **Persistent Data:** Uses Docker volumes to persist OAuth tokens, processed event history, and application logs across container restarts.
+* ✅ **Real-Time Processing:** Uses Google Calendar Push Notifications (webhooks) for instant event handling.
+* 🐳 **Modular Docker Deployment:** Deployed using its own `docker-compose.yml`, it connects to shared, persistent Docker networks, allowing it to be managed independently of other services like Pi-hole.
+* 🌐 **Secure Webhooks:** Utilizes a Cloudflare Tunnel (`cloudflared`) container for a stable and secure public webhook URL, eliminating the need to open ports on your home router.
+* 🔑 **Persistent Authentication:** Uses the standard Google OAuth 2.0 flow for authentication, with tokens stored in a persistent Docker volume to survive container restarts.
+* ⚙️ **Health Monitoring:** Integrates with Uptime Kuma via a push monitor (using the `HEALTHCHECK_URL` environment variable) to ensure the application reports its status.
+* 💾 **Persistent Data:** Uses Docker volumes to persist OAuth tokens, processed event history, and application logs.
 
 ---
 
@@ -30,121 +23,110 @@ This application is designed for reliable, persistent operation using a Docker C
 
 ```
 calendar_bot/
-├── app.py                     # Main Flask application, scheduler, webhook endpoint
-├── Dockerfile                 # Builds the 'calendar_bot' Docker image
-├── docker-compose.yml         # Defines services, networks, and volumes
+├── app.py                 # Main Flask application, scheduler, webhook endpoint
+├── Dockerfile             # Builds the 'calendar_bot' Docker image
+├── docker-compose.yml     # Defines the calendar_bot and cloudflared services
 ├── secrets/
-│   └── .env.encrypted.bak     # Your encrypted environment file
-├── .env.example               # Template for environment variables
-├── requirements.txt           # Python dependencies
-├── gunicorn_config.py         # Gunicorn configuration file
-├── common/
-│   └── credentials.py         # Loads Google User OAuth2 tokens
-├── utils/
-│   ├── email_utils.py         # Sends notifications via SendGrid
-│   ├── google_utils.py        # Builds Google API service objects
-│   ├── process_event.py       # Core event-handling logic
-│   ├── logger.py              # Application logging configuration
-│   ├── health.py              # Health check logic
-│   └── tenacity_utils.py      # Callbacks for retry logic
-├── scripts/
-│   ├── generate_google_tokens.py # Script to generate user OAuth tokens
-│   └── manage_webhooks.py     # Script to register/stop webhooks
-└── data/                        # (This path is inside a Docker volume)
-└── processed_events.json
+│   └── .env.encrypted.bak # Your encrypted environment file
+├── .env.example           # Template for environment variables
+├── requirements.txt       # Python dependencies
+└── ... (other helper scripts and modules)
 ```
-
-> **Note:** `common/auth/google_credentials_*.json` files are copied into the Docker image to allow the token generation script to run inside the container for initial setup. The generated `token_*.json` files live in a persistent Docker volume mapped to `/app/common/auth`.
 
 ---
 
 ## 🔧 Deployment Guide
 
-This guide covers deploying the application on a Linux server using Docker and Docker Compose.
+This guide covers deploying the application on a Linux server using a modular Docker Compose setup.
 
-### I. Initial One-Time Setup
+### I. Prerequisites
 
-1.  **Prerequisites:**
-    * A server with Docker and Docker Compose installed.
-    * This service depends on a pre-existing Docker bridge network named `shared_network`. Ensure it has been created before deploying this service.
-    * It also requires a Cloudflare Tunnel token to be inserted into the `docker-compose.yml` file.
-    * A custom domain (e.g., `joelt.win`) added as an active site in your Cloudflare account.
-    * Project code cloned to your server (`git clone ...`).
+1.  **Docker & Docker Compose:** A server with both installed.
+2.  **Shared Docker Network:** This service requires a pre-existing Docker bridge network for inter-container communication. If it doesn't exist, create it with:
+    ```bash
+    sudo docker network create shared_network
+    ```
+3.  **Pi-hole for DNS (Recommended):** This setup assumes a Pi-hole container is running and accessible at `192.168.50.2` for DNS resolution. The DNS is specified in the `docker-compose.yml`.
+4.  **Google Cloud Project:** A configured Google Cloud project with the Google Calendar API enabled.
+5.  **Cloudflare Account:** A custom domain managed by Cloudflare.
 
-2.  **Google Service Account & Calendar Sharing:**
-    * In the Google Cloud Console, for your project, create a **Service Account**.
-    * Generate and download its **JSON key**. Rename it to `service-account-key.json` and place it in the `~/calendar_bot/secrets/` directory.
-    * Copy the service account's email address (e.g., `...iam.gserviceaccount.com`).
-    * In Google Calendar, **share** each of your source calendars (e.g., `joeltimm@gmail.com`, `tsouthworth@gmail.com`) with the service account's email address, granting it **"Make changes to events"** permissions.
-    * On your server, grant your user accounts permission to impersonate the service account by assigning them the **"Service Account Token Creator"** role on the service account's "Permissions" tab in IAM.
+### II. One-Time Setup
 
-3.  **Transactional Email Service (SendGrid):**
-    * Sign up for a free SendGrid account and get an API Key.
-    * Verify a "Single Sender" email address that will be used as your `SENDER_EMAIL`.
+1.  **Google OAuth Credentials:**
+    * In the Google Cloud Console, create OAuth 2.0 Client IDs credentials for a "Web application".
+    * Download the `client_secret.json` file.
+    * On your server, create the directory: `mkdir -p ~/calendar_bot/common/auth/`
+    * Place the downloaded `client_secret.json` file inside that new directory.
 
-4.  **Environment Variables:**
-    * Create a plain-text `.env` file in the `~/calendar_bot/` directory.
-    * Add all necessary variables (referencing `.env.example`), including your `SENDGRID_API_KEY` and the path to your service account key:
-        ```env
-        # Example .env entry
-        SERVICE_ACCOUNT_FILE=/app/secrets/service-account-key.json
-        SENDGRID_API_KEY=SG.your_key_here
-        ...
+2.  **Generate Google Tokens:**
+    * This step authorizes the application with your Google account. It only needs to be done once.
+    * From the `~/calendar_bot` directory, run the interactive token generation script **inside a temporary container**:
+        ```bash
+        # This command starts a temporary 'calendar_bot' container,
+        # runs the script, and then removes the container.
+        sudo docker-compose run --rm calendar_bot python3 scripts/generate_google_tokens.py
         ```
-    * Generate a `DOTENV_ENCRYPTION_KEY` and **store it securely** in a password manager.
-    * Set the key in your shell (`export DOTENV_ENCRYPTION_KEY="..."`) and run your encryption script to create `secrets/.env.encrypted.bak`.
-    * Delete the plain-text `.env` file.
+    * Follow the on-screen prompts: copy the URL to your browser, authorize the app, and paste the authorization code back into the terminal. This will create a `token.json` file inside the persistent Docker volume, where the running container can access it.
 
-5.  **Cloudflare Tunnel Setup:**
-    * In the Cloudflare Zero Trust dashboard, go to **Access -> Tunnels**.
-    * Click "+ Create a tunnel", choose "Cloudflared", name it (e.g., `calendar-bot-tunnel`), and save.
-    * On the next screen, copy the **tunnel token** from the `cloudflared ... run --token <TOKEN>` command.
-    * Go to the tunnel's **"Public Hostnames"** tab. Add a hostname:
-        * **Subdomain:** `calendarwebhook` (or your choice)
-        * **Domain:** `joelt.win` (your custom domain)
-        * **Service:** `HTTP` -> `http://calendar_bot:5000` (points to the bot service on the Docker network)
-    * Save the hostname.
+3.  **Create Environment File:**
+    * In the `~/calendar_bot/` directory, create a temporary `.env` file: `nano .env`
+    * Add the `HEALTHCHECK_URL` from your Uptime Kuma push monitor. It must be enclosed in quotes.
+        ```env
+        HEALTHCHECK_URL="[https://status.joelt.win/api/push/7GrgCHkzrl?status=up&msg=OK&ping=](https://status.joelt.win/api/push/7GrgCHkzrl?status=up&msg=OK&ping=)"
+        ```
+    * Generate a new `DOTENV_ENCRYPTION_KEY` using a password manager or by running `openssl rand -base64 32`. **Store this key securely.**
+    * Set the key in your current shell session: `export DOTENV_ENCRYPTION_KEY="your_newly_generated_key"`
+    * Run your encryption script to create the `secrets/.env.encrypted.bak` file.
+    * **Securely delete the plain-text `.env` file:** `rm .env`
 
-6.  **Finalize `docker-compose.yml`:**
-    * Ensure your `docker-compose.yml` is in the project root.
-    * Paste your `DOTENV_ENCRYPTION_KEY` and your Cloudflare Tunnel **Token** into the respective placeholders in the `environment:` and `command:` sections.
+4.  **Cloudflare Tunnel Setup:**
+    * Create a new tunnel in the Cloudflare Zero Trust dashboard.
+    * Copy the tunnel token from the installation command (it's the long string after `--token`).
+    * Paste your token into the `command:` section of the `cloudflared_tunnel` service in your `docker-compose.yml`.
+    * In the tunnel's "Public Hostnames" tab, create a hostname that points to the bot:
+        * **Subdomain:** `calendarwebhook`
+        * **Domain:** `joelt.win`
+        * **Service Type:** `HTTP`
+        * **URL:** `calendar_bot:5000`
+            *(This works because all services in this compose file are on the same Docker network, allowing them to find each other by their service name.)*
 
-### II. Deployment & First Run
+### III. Deployment
 
 1.  **Build and Start the Services:**
+    From the `~/calendar_bot` directory, run:
     ```bash
-    cd ~/calendar_bot
-    docker-compose up --build -d
+    sudo docker-compose up -d --build
     ```
 
-2.  **Register Google Calendar Webhooks:**
-    * Activate your host's Python virtual environment:
-        `source venv/bin/activate`
-    * Run the webhook management script:
-        `python3 scripts/manage_webhooks.py`
-    * For each source calendar, choose option "1" and provide your full public webhook URL (e.g., `https://calendarwebhook.joelt.win/webhook`).
-
-3.  **Verify Operation:**
-    * The bot is now running. Check the logs (`docker-compose logs -f calendar_bot`) and create test events in your Google Calendars to see webhooks arrive and events get processed.
+2.  **Register Webhooks:**
+    Once the container is running (`sudo docker-compose ps` shows it as "Up"), register your webhook URL with Google Calendar.
+    ```bash
+    # Enter the running container's shell
+    sudo docker exec -it calendar_bot /bin/bash
+    
+    # Inside the container, run the management script
+    python3 scripts/manage_webhooks.py
+    ```
+    Follow the prompts to register your `https://calendarwebhook.joelt.win/webhook` URL for each calendar you want to monitor.
 
 ---
 
 ## 📊 Management & Maintenance
 
-* **View Application Logs:** `docker-compose logs -f calendar_bot`
-* **View Tunnel Logs:** `docker-compose logs -f cloudflared_tunnel`
-* **Check Container Status:** `docker-compose ps`
+* **View Application Logs:** `sudo docker-compose logs -f calendar_bot`
+* **View Tunnel Logs:** `sudo docker-compose logs -f cloudflared_tunnel`
+* **Check Container Status:** `sudo docker-compose ps`
 * **Test Health Endpoint:** `curl https://calendarwebhook.joelt.win/health`
-* **Stop Services:** `docker-compose down`
+* **Stop Services:** `sudo docker-compose down`
 * **Update Application:**
     1.  `git pull`
-    2.  `docker-compose build`
-    3.  `docker-compose up -d --force-recreate`
+    2.  `sudo docker-compose up -d --build --force-recreate`
 
 ---
 
 ## 🛡️ Security Notes
 
-* Your `DOTENV_ENCRYPTION_KEY`, Cloudflare Tunnel Token, and `service-account-key.json` are highly sensitive credentials.
+* Your `DOTENV_ENCRYPTION_KEY`, Cloudflare Tunnel Token, and `client_secret.json` are highly sensitive credentials.
 * **Never commit secrets to Git.** Use a `.gitignore` file to exclude `secrets/`, `common/auth/`, `.env`, etc.
-* The Docker image will contain the encrypted `.env` and service account key. Keep your Docker images in a private registry if security is a major concern.
+* The Docker image will contain the encrypted `.env` file. Keep your Docker images in a private registry if security is a major concern.
+

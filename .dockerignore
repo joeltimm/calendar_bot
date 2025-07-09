@@ -1,85 +1,45 @@
-__pycache__
+# .dockerignore
+# Files and directories to ignore when building Docker images.
+# These will NOT be copied into the Docker build context.
+
+# Python virtual environment
+venv/
+.venv/
+
+# Python compiled files
+__pycache__/
 *.pyc
 *.pyo
-.git
-.vscode
-*.log
-cat > .gitignore <<'EOF'
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-*.egg
-*.pyo
-*.pyd
 
-# Virtual environments
-.venv
-venv/
-.env
+# Git-related files
+.git/
+.gitignore
 
-.pytest_cache/
+# Sensitive files that should NEVER be copied into the Docker image (CORRECTED)
+.env              # The plaintext .env file
+secrets/          # The entire secrets directory (containing .env.encrypted.bak)
+common/auth/      # Google JSON files (tokens, client secrets)
+*.env
 
-# Auth tokens and credentials
-*/*token*.json
-*/*gmail_token*.json
-*/*calendar_token*.json 
-*/*credentials*.yaml
-*/*token*.yaml
-*/*token*.txt
-*/*secret*.json
-*/*secret*.yaml
-*/*secret*.txt
-*/*client_secret*.json
-*/*client_secret*.yaml
-*/*client_secret*.txt
-*/*service_account*.json
-*/*service_account*.yaml
-*/*service_account*.txt
-*/*api_key*.json
-*/*api_key*.yaml
-*/*api_key*.txt
-*/*auth*.json
-*/*auth*.yaml
-*/*auth*.txt
-*/*access_token*.json
-*/*access_token*.yaml
-*/*access_token*.txt
-*/*refresh_token*.json
-*/*refresh_token*.yaml
-*/*refresh_token*.txt
-*/*oauth2_token*.json
-*/*oauth2_token*.yaml
-*/*oauth2_token*.txt
-*/*credentials*.txt
-*/*token*.txt
-*/*secret*.txt
-*/*client_secret*.txt
-*/*service_account*.txt
-*/*api_key*.txt
-*/*auth*.txt
-*/*access_token*.txt
-*/*refresh_token*.txt
-*/*oauth2_token*.txt
-
-# Logs
+# Log files and processed data that don't need to be in the image
 logs/
 *.log
+flask.err.log
+flask.out.log
 webhook_debug.log
 debug.log
-
-# Processed events tracking
 processed_events.json
+data/
+monitor_status/
 
-# Shell scripts (optional if private/local)
-start_bot.sh
-
-# macOS system files
-.DS_Store
-EOF
-
-#Other
+# Other temporary or irrelevant files
+*.save
 docker_plan.md
+DEPLOYMENT.md
+README.md
+systemd.example.file
+tests/
+*temp*.txt
 
-# OS-specific files
+# macOS system files (if developing on Mac)
 .DS_Store

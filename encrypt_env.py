@@ -33,14 +33,14 @@ def encrypt_env_file():
 
     try:
         fernet = Fernet(key_str.encode())
-        
+
         # Read the source data
         with open(source_env_file, "rb") as f:
             data = f.read()
 
         # Encrypt the data
         encrypted_data = fernet.encrypt(data)
-        
+
         # Write the encrypted data to the correct destination file
         with open(encrypted_file_path, "wb") as f:
             f.write(encrypted_data)

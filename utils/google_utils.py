@@ -1,6 +1,4 @@
 # calendar_bot/utils/google_utils.py
-from encrypted_env_loader import load_encrypted_env
-load_encrypted_env()
 import os
 from utils.logger import logger
 from pathlib import Path
@@ -16,7 +14,7 @@ def build_calendar_service(calendar_id: str):
 
     logger.info(f"🔧 Building Calendar service for {calendar_id}...")
     try:
-        # Extracts 'joeltimm' from 'joeltimm@gmail.com' to match token filename convention
+        # Extracts 'user' from 'user@gmail.com' to match token filename convention
         suffix = calendar_id.split("@")[0]
         creds = load_credentials(suffix)
         return build('calendar', 'v3', credentials=creds)

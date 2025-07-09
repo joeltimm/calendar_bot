@@ -1,46 +1,51 @@
-# decrypt_env.py
+# ~/calendar_bot/decrypt_env.py (CORRECTED to accept command-line argument)
+
 import os
 from pathlib import Path
 from cryptography.fernet import Fernet
-from cryptography.fernet import InvalidToken
+import sys # ADD THIS IMPORT
 
 def decrypt_and_print_env():
     """
-    Finds, decrypts, and prints the contents of the encrypted .env file.
-    Requires DOTENV_ENCRYPTION_KEY to be set in the environment.
+    Decrypts the encrypted environment file and prints its content.
+    Expects DOTENV_ENCRYPTION_KEY to be set in the environment.
+    Accepts the path to the encrypted file as a command-line argument.
     """
-    # Get the decryption key from environment variables
     key_str = os.getenv("DOTENV_ENCRYPTION_KEY")
     if not key_str:
-        raise RuntimeError("CRITICAL: DOTENV_ENCRYPTION_KEY environment variable not set.")
+        # Changed to print to stderr and exit with error code, better for scripting
+        print("CRITICAL: DOTENV_ENCRYPTION_KEY environment variable not set.", file=sys.stderr)
+        sys.exit(1)
 
-    # Define the path to the encrypted file
-    encrypted_file_path = Path(__file__).resolve().parent / "secrets" / ".env.encrypted.bak"
+    if len(sys.argv) < 2:
+        # Changed to print to stderr and exit with error code
+        print("Usage: python3 decrypt_env.py <path_to_encrypted_file>", file=sys.stderr)
+        sys.exit(1)
+
+    # Get the encrypted file path from the command-line argument
+    # .resolve() makes it an absolute path
+    encrypted_file_path = Path(sys.argv[1]).resolve()
 
     if not encrypted_file_path.exists():
-        raise FileNotFoundError(f"Encrypted environment file not found at: {encrypted_file_path}")
+        print(f"FileNotFoundError: Encrypted environment file not found at: {encrypted_file_path}", file=sys.stderr)
+        sys.exit(1)
 
-    print(f"--> Found encrypted file at: {encrypted_file_path}")
+    print(f"--> Reading encrypted data from: {encrypted_file_path}", file=sys.stderr) # Log to stderr
 
     try:
         fernet = Fernet(key_str.encode())
 
-        # Read the encrypted bytes from the file
-        encrypted_data = encrypted_file_path.read_bytes()
+        with open(encrypted_file_path, "rb") as f:
+            encrypted_data = f.read()
 
-        # Decrypt the data
-        decrypted_data = fernet.decrypt(encrypted_data).decode()
+        decrypted_data = fernet.decrypt(encrypted_data)
 
-        # Print the decrypted content for you to copy
-        print("\n--- Decrypted .env Content (copy this, edit, and save as .env) ---")
-        print("------------------------------------------------------------------")
-        print(decrypted_data)
-        print("------------------------------------------------------------------")
+        # Print decrypted data to stdout, which can be redirected
+        sys.stdout.buffer.write(decrypted_data) # Use sys.stdout.buffer.write for bytes
 
-    except InvalidToken:
-        print("\n❌ DECRYPTION FAILED: The DOTENV_ENCRYPTION_KEY is incorrect or the encrypted file is corrupted.")
     except Exception as e:
-        print(f"\n❌ An unexpected error occurred during decryption: {e}")
+        print(f"\n❌ An error occurred during decryption: {e}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     decrypt_and_print_env()

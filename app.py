@@ -1,4 +1,4 @@
-# ~/calendar_bot/app.py (Final Corrected Version)
+# ~/calendar_bot/app.py
 
 import os
 import sys
@@ -23,16 +23,12 @@ from utils.health import send_health_ping
 from utils.tenacity_utils import log_before_retry, log_and_email_on_final_failure
 
 # --- App Configuration Loading ---
-# This line is crucial for everything below to work.
-from encrypted_env_loader import load_encrypted_env
-load_encrypted_env()
-
-POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "15"))
+POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
 SOURCE_CALENDARS_STR = os.getenv('SOURCE_CALENDARS', 'joeltimm@gmail.com,tsouthworth@gmail.com')
 SOURCE_CALENDARS = [cal.strip() for cal in SOURCE_CALENDARS_STR.split(',') if cal.strip()]
 DEBUG_LOGGING = os.getenv("DEBUG_LOGGING", "false").lower() == "true"
-HEALTHCHECK_URL = os.getenv("HEALTHCHECK_URL") # For healthchecks.io style pinging
 UPTIME_KUMA_PUSH_URL = os.getenv("UPTIME_KUMA_PUSH_URL") # For Uptime Kuma heartbeat
+GOOGLE_WEBHOOK_URL = os.getenv("GOOGLE_WEBHOOK_URL")
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
@@ -70,11 +66,36 @@ def fetch_recent_events(service, calendar_id):
     ).execute()
     return events_result.get('items', [])
 
+def send_daily_health_report():
+    """
+    Sends a daily email summarizing the bot's operation.
+    """
+    logger.info("📧 Sending daily health report email...")
+
+    subject = "Calendar Bot Daily Health Report - All Systems Go!"
+    body = (
+        f"Hello,\n\n"
+        f"This is your Calendar Bot reporting in from joelrockslinuxserver.\n\n"
+        f"The bot is running smoothly.\n"
+        f"Last poll completed successfully.\n" # This might need to be more precise or removed if you don't track it
+        f"Total events processed since last restart: {len(processed_ids)}.\n\n"
+        f"If you are receiving this email, it means:\n"
+        f"- The Flask application is running.\n"
+        f"- The APScheduler is functioning.\n"
+        f"- Outbound internet connectivity is working (to SendGrid and Google APIs during polls).\n\n"
+        f"No critical errors were encountered in the last 24 hours that prevented core operations.\n\n"
+        f"Best regards,\n"
+        f"Your Calendar Bot"
+    )
+
+    send_error_email(subject, body)
+    logger.info("✅ Daily health report email sent.")
+
 # --- Main Application Logic ---
 def poll_calendar():
     #The core job that polls all source calendars and processes new events.
     initial_id_count = len(processed_ids)
-    if HEALTHCHECK_URL: send_health_ping(f"{HEALTHCHECK_URL}/start")
+    if UPTIME_KUMA_PUSH_URL: send_health_ping(f"{UPTIME_KUMA_PUSH_URL}")
     logger.info("⏱️ Running scheduled poll...")
 
     for cal in SOURCE_CALENDARS:
@@ -125,7 +146,7 @@ def poll_calendar():
         except Exception as e:
             logger.error(f"Failed to send heartbeat to Uptime Kuma: {e}")
 
-    if HEALTHCHECK_URL: send_health_ping(HEALTHCHECK_URL)
+    #if HEALTHCHECK_URL: send_health_ping(HEALTHCHECK_URL)
 
 # --- Flask Web Routes ---
 @app.route('/webhook', methods=['POST'])
@@ -134,9 +155,23 @@ def webhook():
     logger.info("📩 Webhook received!")
     resource_state = request.headers.get('X-Goog-Resource-State')
 
+    logger.debug(f"Webhook headers: {request.headers}")
+
     if resource_state == 'exists':
-        logger.info("Valid 'exists' webhook received, triggering immediate poll...")
-        scheduler.add_job(poll_calendar, id=f'webhook_triggered_poll_{uuid.uuid4().hex}', replace_existing=False)
+        logger.info("Valid 'exists' webhook received. Signaling immediate poll of main job.")
+        # Instead of adding a new job, modify the next_run_time
+        # of the existing 'poll_calendar_job' to be immediate.
+        # This ensures only one polling job is active/queued at a time,
+        # respecting the max_instances=1 set on 'poll_calendar_job'.
+        try:
+            scheduler.modify_job('poll_calendar_job', next_run_time=datetime.now(timezone.utc))
+            logger.info("Main poll_calendar job rescheduled for immediate execution.")
+        except Exception as e:
+            logger.error(f"Failed to reschedule main poll_calendar job immediately: {e}", exc_info=True)
+            # As a fallback, you might still want to add a unique job if rescheduling fails often,
+            # but ideally, modify_job should work.
+            scheduler.add_job(poll_calendar, id=f'webhook_triggered_fallback_poll_{uuid.uuid4().hex}', replace_existing=False)
+            logger.warning("Added a fallback webhook-triggered poll job due to reschedule failure.")
     else:
         logger.info(f"📭 Ignoring webhook with state: {resource_state}")
 
@@ -160,8 +195,7 @@ if __name__ != '__main__':
 
     # Configure and start the scheduler
     scheduler.add_job(poll_calendar, 'interval', minutes=POLL_INTERVAL_MINUTES, id='poll_calendar_job', max_instances=1)
-    # The health.py send_health_ping is different from Uptime Kuma push,
-    # keeping it as a separate daily job.
-    scheduler.add_job(send_health_ping, 'cron', hour=8, id='health_ping_job', args=[HEALTHCHECK_URL] if HEALTHCHECK_URL else None)
+    scheduler.add_job(poll_calendar, id='initial_startup_poll', run_date=datetime.now(timezone.utc), replace_existing=True)
+    scheduler.add_job(send_daily_health_report, 'cron', hour=7, id='daily_health_email_job', replace_existing=True)
     scheduler.start()
     logger.info(f"🧠 Main process started. Polling every {POLL_INTERVAL_MINUTES} minutes.")

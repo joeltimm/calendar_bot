@@ -1,0 +1,31 @@
+# ~/calendar_bot/monitor_bot_health/Dockerfile.monitor
+
+# Use a lightweight Python image
+FROM python:3.12-slim
+
+# Set working directory inside the container
+WORKDIR /app
+
+# Install system dependencies needed for network tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    dnsutils \
+    iputils-ping \
+    net-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file (source path is relative to the build context '.')
+COPY monitor_bot_health/requirements-monitor.txt .
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements-monitor.txt
+
+# Copy common utilities and the main script (source paths are relative to build context '.')
+COPY common /app/common
+COPY utils /app/utils
+COPY monitor_bot_health/monitor_bot_health.py /app/monitor_bot_health.py
+
+# Create a directory for the monitor's status file (inside the container)
+RUN mkdir -p /app/status
+
+# Command to run the monitor script
+CMD ["python", "monitor_bot_health.py"]

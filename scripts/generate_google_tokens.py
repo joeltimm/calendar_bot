@@ -53,7 +53,7 @@ if __name__ == "__main__":
     SERVICES = {
         "joeltimm_google_access": {
             "client_secrets_filename": "google_credentials_joeltimm.json",
-            "token_filename":          "token_joeltimm.json",
+            "token_filename": Path("/home/joel/my_super_secure_secrets/google_auth") / "token_joeltimm.json",
             "scopes": [
                 "https://www.googleapis.com/auth/gmail.send",
                 "https://www.googleapis.com/auth/calendar"
@@ -61,7 +61,7 @@ if __name__ == "__main__":
         },
         "calendar_tsouthworth": {
             "client_secrets_filename": "calendar_credentials_tsouthworth.json",
-            "token_filename":          "token_tsouthworth.json",
+            "token_filename": Path("/home/joel/my_super_secure_secrets/google_auth") / "token_tsouthworth.json",
             "scopes":                  ["https://www.googleapis.com/auth/calendar"]
         }
     }
@@ -71,6 +71,9 @@ if __name__ == "__main__":
 
     for i, (service_name, service_config) in enumerate(SERVICES.items()):
         current_port = base_port + i
+
+        service_config["client_secrets_filename"] = Path("/home/joel/my_super_secure_secrets/google_auth") / service_config["client_secrets_filename"]
+
         if not authorize_local_server(service_name, service_config, current_port):
             _logger.error(f"Failed to authorize '{service_name}'. Stopping.")
             break

@@ -1,3 +1,6 @@
+# ~/calendar_bot/Dockerfile
+# Dockerfile for the main Calendar Bot application
+
 # Use an official Python runtime as a parent image
 FROM python:3.12-slim
 

@@ -14,6 +14,9 @@ from googleapiclient.errors import HttpError
 from google.auth.exceptions import RefreshError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
+# Prometheus client imports - ENSURE THESE ARE PRESENT AND CORRECT
+from prometheus_client import generate_latest, Counter, Gauge
+
 # --- Utility Imports ---
 from utils.logger import logger
 from utils.email_utils import send_error_email
@@ -29,6 +32,35 @@ SOURCE_CALENDARS = [cal.strip() for cal in SOURCE_CALENDARS_STR.split(',') if ca
 DEBUG_LOGGING = os.getenv("DEBUG_LOGGING", "false").lower() == "true"
 UPTIME_KUMA_PUSH_URL = os.getenv("UPTIME_KUMA_PUSH_URL") # For Uptime Kuma heartbeat
 GOOGLE_WEBHOOK_URL = os.getenv("GOOGLE_WEBHOOK_URL")
+
+# --- Prometheus Metrics Definitions ---
+# Counter for total polls initiated
+POLLS_INITIATED_TOTAL = Counter(
+    'calendar_bot_polls_initiated_total',
+    'Total number of calendar polling cycles initiated.'
+)
+# Counter for successful event processing
+EVENTS_PROCESSED_SUCCESS_TOTAL = Counter(
+    'calendar_bot_events_processed_success_total',
+    'Total number of events successfully processed (invited/duplicated).',
+    ['calendar_id'] # Label by calendar
+)
+# Counter for failed event processing
+EVENTS_PROCESSED_FAILURE_TOTAL = Counter(
+    'calendar_bot_events_processed_failure_total',
+    'Total number of events that failed processing.',
+    ['calendar_id'] # Label by calendar
+)
+# Gauge for the number of processed event IDs currently tracked
+PROCESSED_EVENT_IDS_COUNT = Gauge(
+    'calendar_bot_processed_event_ids_count',
+    'Current number of unique event IDs tracked as processed.'
+)
+# Counter for webhook calls received
+WEBHOOK_RECEIVED_TOTAL = Counter(
+    'calendar_bot_webhooks_received_total',
+    'Total number of webhooks received.'
+)
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
@@ -94,6 +126,7 @@ def send_daily_health_report():
 # --- Main Application Logic ---
 def poll_calendar():
     #The core job that polls all source calendars and processes new events.
+    POLLS_INITIATED_TOTAL.inc() # Increment Prometheus counter
     initial_id_count = len(processed_ids)
     if UPTIME_KUMA_PUSH_URL: send_health_ping(f"{UPTIME_KUMA_PUSH_URL}")
     logger.info("⏱️ Running scheduled poll...")
@@ -146,8 +179,6 @@ def poll_calendar():
         except Exception as e:
             logger.error(f"Failed to send heartbeat to Uptime Kuma: {e}")
 
-    #if HEALTHCHECK_URL: send_health_ping(HEALTHCHECK_URL)
-
 # --- Flask Web Routes ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -176,6 +207,12 @@ def webhook():
         logger.info(f"📭 Ignoring webhook with state: {resource_state}")
 
     return jsonify({"status": "received"}), 200
+
+# Prometheus metrics endpoint
+@app.route('/metrics')
+def metrics():
+    """Exposes Prometheus metrics."""
+    return generate_latest(), 200, {'Content-Type': 'text/plain; version=0.0.4; charset=utf-8'}
 
 @app.route('/health', methods=['GET'])
 def health_check():

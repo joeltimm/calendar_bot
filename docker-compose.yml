@@ -4,7 +4,7 @@ services:
     container_name: calendar_bot-calendar_bot-1
     restart: unless-stopped
     dns:
-      - 192.168.50.2
+      - 192.168.50.218
       - 1.1.1.1
       - 8.8.8.8
     ports:
@@ -22,6 +22,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks:
+      - default
+      - monitoring
     logging:
       driver: "json-file"
       options:
@@ -34,7 +37,7 @@ services:
     restart: unless-stopped
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     dns:
-      - 192.168.50.2
+      - 192.168.50.218
       - 1.1.1.1
       - 8.8.8.8
     depends_on:
@@ -60,3 +63,8 @@ services:
       options:
         max-size: "1m"
         max-file: "3"
+
+networks:
+  monitoring:
+    external: true
+    name: homelab-monitoring_monitoring_net

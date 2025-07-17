@@ -12,7 +12,7 @@ services:
     volumes:
       - ./data:/app/data
       - /home/joel/my_super_secure_secrets:/app/secrets
-      - /home/joel/my_super_secure_secrets/google_auth:/app/common/auth
+      - /home/joel/my_super_secure_secrets/google_auth:/app/common/auth:ro
       - ./common:/app/common
       - ./utils:/app/utils
       - ./gunicorn_config.py:/app/gunicorn_config.py

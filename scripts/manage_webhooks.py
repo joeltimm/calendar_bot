@@ -10,7 +10,7 @@ from googleapiclient.errors import HttpError
 # --- Configuration ---
 # Path to the directory where your token JSON files are stored (e.g., common/auth/)
 # Adjust if your script is in a different location relative to your tokens
-TOKEN_DIR = Path(__file__).resolve().parent.parent / "common" / "auth"
+TOKEN_DIR = Path("/home/joel/my_super_secure_secrets/google_auth")
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def load_credentials(token_filename):
@@ -19,7 +19,7 @@ def load_credentials(token_filename):
     token_path = os.path.join(TOKEN_DIR, token_filename)
     if os.path.exists(token_path):
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-    
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             try:
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     # --- User Inputs ---
     token_file_name = input("Enter the token filename (e.g., token_joeltimm.json): ")
     calendar_id_to_manage = input(f"Enter the Calendar ID to manage (e.g., {token_file_name.split('_')[1].split('.')[0]}@gmail.com or primary): ")
-    webhook_notification_url = input("Enter your new FULL webhook URL (e.g., https://your-tunnel.trycloudflare.com/webhook): ")
+    webhook_notification_url = input("Enter your new FULL webhook URL (e.g., https://calendarbot-webhook/joelt.win): ")
 
     # --- Build Service ---
     calendar_service = build_calendar_service_from_token(token_file_name)

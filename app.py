@@ -6,7 +6,7 @@ import uuid
 import logging
 import requests
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from flask import Flask, request, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -34,39 +34,42 @@ UPTIME_KUMA_PUSH_URL = os.getenv("UPTIME_KUMA_PUSH_URL") # For Uptime Kuma heart
 GOOGLE_WEBHOOK_URL = os.getenv("GOOGLE_WEBHOOK_URL")
 
 # --- Prometheus Metrics Definitions ---
-# Counter for total polls initiated
 POLLS_INITIATED_TOTAL = Counter(
     'calendar_bot_polls_initiated_total',
     'Total number of calendar polling cycles initiated.'
 )
-# Counter for successful event processing
 EVENTS_PROCESSED_SUCCESS_TOTAL = Counter(
     'calendar_bot_events_processed_success_total',
     'Total number of events successfully processed (invited/duplicated).',
-    ['event_type', 'calendar_id'] #label by type
+    ['calendar_id', 'event_type'] # All labels in one list
 )
-# Counter for failed event processing
 EVENTS_PROCESSED_FAILURE_TOTAL = Counter(
     'calendar_bot_events_processed_failure_total',
     'Total number of events that failed processing.',
-    ['reason']
-    ['event_type', 'calendar_id']
+    ['calendar_id', 'reason'] # All labels in one list
 )
-# Gauge for the number of processed event IDs currently tracked
 PROCESSED_EVENT_IDS_COUNT = Gauge(
     'calendar_bot_processed_event_ids_count',
     'Current number of unique event IDs tracked as processed.'
 )
-# Counter for webhook calls received
 WEBHOOK_RECEIVED_TOTAL = Counter(
     'calendar_bot_webhooks_received_total',
     'Total number of webhooks received.'
 )
-# Histogram for how long everything takes
 POLL_DURATION_SECONDS = Histogram(
     'calendar_bot_poll_duration_seconds',
     'Time taken to complete a polling cycle.'
 )
+EVENTS_CLEANED_TOTAL = Counter(
+    'calendar_bot_events_cleaned_total', 
+    'Total number of old event IDs cleaned from memory.'
+)
+WEBHOOK_REGISTRATIONS_TOTAL = Counter(
+    'calendar_bot_webhook_registrations_total', 
+    'Total webhook registration attempts.', 
+    ['calendar_id', 'status']
+)
+
 # --- Flask App Initialization ---
 app = Flask(__name__)
 processed_ids = set()
@@ -225,6 +228,34 @@ def poll_calendar():
             except Exception as e:
                 logger.error(f"Failed to send heartbeat to Uptime Kuma: {e}")
 
+# --- Webhook Registration ---
+def register_webhooks():
+    """
+    Registers a watch channel with Google for each source calendar.
+    This tells Google where to send webhook notifications.
+    """
+    if not GOOGLE_WEBHOOK_URL:
+        logger.warning("🔗 GOOGLE_WEBHOOK_URL is not set. Skipping webhook registration.")
+        return
+
+    logger.info("🔗 Attempting to register webhooks with Google...")
+    for cal in SOURCE_CALENDARS:
+        try:
+            service = build_calendar_service(cal)
+            channel_body = {
+                'id': str(uuid.uuid4()),
+                'type': 'web_hook',
+                'address': GOOGLE_WEBHOOK_URL
+            }
+            service.events().watch(calendarId=cal, body=channel_body).execute()
+            logger.info(f"✅ Successfully registered webhook for {cal} at {GOOGLE_WEBHOOK_URL}")
+            WEBHOOK_REGISTRATIONS_TOTAL.labels(calendar_id=cal, status='success').inc()
+        except Exception as e:
+            logger.error(f"❌ Failed to register webhook for {cal}: {e}", exc_info=True)
+            WEBHOOK_REGISTRATIONS_TOTAL.labels(calendar_id=cal, status='failure').inc()
+            send_error_email("Calendar Bot - CRITICAL Webhook Registration Failed", f"Could not register webhook for {cal}.\nError: {e}")
+
+
 # --- Flask Web Routes ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -275,6 +306,7 @@ if __name__ != '__main__':
 
     logger.info("🚀 Starting Flask app...")
     processed_ids.update(load_processed())
+    PROCESSED_EVENT_IDS_COUNT.set(len(processed_ids))
     logger.info(f"📂 Loaded {len(processed_ids)} processed event IDs.")
 
     # Configure and start the scheduler
@@ -282,5 +314,6 @@ if __name__ != '__main__':
     scheduler.add_job(poll_calendar, id='initial_startup_poll', run_date=datetime.now(timezone.utc), replace_existing=True)
     scheduler.add_job(send_daily_health_report, 'cron', hour=7, id='daily_health_email_job', replace_existing=True)
     scheduler.add_job(clean_processed_events_list, 'cron', day_of_week='sun', hour=3, id='weekly_memory_clean_job', replace_existing=True)
+    scheduler.add_job(register_webhooks, id='initial_webhook_registration', run_date=datetime.now(timezone.utc) + timedelta(seconds=10))
     scheduler.start()
     logger.info(f"🧠 Main process started. Polling every {POLL_INTERVAL_MINUTES} minutes.")

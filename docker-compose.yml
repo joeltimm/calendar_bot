@@ -29,26 +29,6 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  health_monitor:
-    build:
-      context: .
-      dockerfile: monitor_bot_health/Dockerfile.monitor
-    container_name: calendar_bot-health_monitor-1
-    restart: unless-stopped
-    volumes:
-      - ./monitor_status:/app/status
-      - /home/joel/my_super_secure_secrets:/app/secrets
-      - ./common:/app/common
-      - ./utils:/app/utils
-    depends_on:
-      calendar_bot:
-        condition: service_healthy
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "1m"
-        max-file: "3"
-
 networks:
   backend_net:
     external: true

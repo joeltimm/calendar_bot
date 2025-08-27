@@ -45,6 +45,13 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# --- Load the updated variables into the current shell ---
+echo "✅ Loading new variables into the current shell session..."
+set -a # Automatically export all variables we're about to source
+source ./.env
+set +a
+# --- END NEW SECTION ---
+
 # --- Clean up plaintext file ---
 echo "Deleting temporary plaintext file ./.env"
 rm ./.env

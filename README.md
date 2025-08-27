@@ -3,12 +3,20 @@
 This is a Python-based Flask application designed to synchronize calendar events between specified Google Calendar accounts. It uses Google Calendar Push Notifications for real-time updates and includes a self-hosted health monitoring service with email alerts.
 
 **Features:**
-* **Real-time Event Sync:** Utilizes Google Calendar webhooks for immediate event processing.
-* **Multi-Calendar Support:** Configurable to monitor multiple Google Calendar accounts.
-* **Event Duplication/Deletion:** Designed to duplicate events to a central account and optionally delete originals from source (configurable logic).
-* **Robustness:** Implements Tenacity for API call retries and SendGrid for error notifications.
-* **Health Monitoring:** Includes a separate Docker service for self-monitoring and email alerts on downtime.
-* **Secure Secret Management:** Best practices for handling API keys and credentials, keeping them out of the public repository.
+* **Advanced Event Handling:** Intelligently processes different event types:
+    * **Clones Birthday Events:** Creates clean, shareable copies of read-only birthday events.
+    * **Duplicates Gmail Events:** Duplicates events created automatically from Gmail (like flights or reservations) and adds a shared attendee.
+    * **Invites Shared Calendar:** Adds a designated shared calendar to all other standard events.
+* **Resilient by Design:**
+    * **Automatic Retries:** Uses Tenacity to automatically retry failed Google API calls with exponential backoff.
+    * **Stateful Memory:** Remembers which events have been processed to prevent duplicate actions, even after restarts.
+    * **Self-Cleaning Memory:** A weekly scheduled job automatically cleans out old event IDs to keep the memory file efficient and prevent data corruption.
+* **Comprehensive Monitoring:**
+    * **Prometheus Exporter:** Exposes a rich set of metrics on a `/metrics` endpoint for performance and health monitoring.
+    * **Uptime Kuma Integration:** Sends heartbeat pings to an Uptime Kuma "Push" monitor on every successful poll.
+* **Dual-Trigger Operation:**
+    * **Scheduled Polling:** Checks for new events on a regular, configurable interval.
+    * **Webhook Ready:** Can be triggered instantly by Google Calendar Push Notifications for real-time processing.
 
 ## Table of Contents
 1.  [Project Structure](#project-structure)
@@ -32,7 +40,7 @@ This is a Python-based Flask application designed to synchronize calendar events
 
 ```
 .
-├── app.py                     # Main Flask application and APScheduler setup
+├── app.py                     # Main Flask application and APScheduler setup and Prometheus metric definitions
 ├── common/                    # Common utilities (e.g., Google credential loading)
 │   ├── auth/                  # (Empty in Git, mounted securely at runtime)
 │   └── credentials.py         # Google OAuth2 credential loading logic
@@ -70,14 +78,20 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Prerequisites
 
-* A Linux server (e.g., Ubuntu, Debian).
-* `git` installed.
-* `docker` and `docker-compose` installed.
-* A Cloudflare account with a registered domain.
-* A Google Cloud Project with the Google Calendar API enabled and OAuth Consent Screen configured.
-* A SendGrid account (or another transactional email service).
-* (Optional) An Uptime Kuma instance for monitoring.
-* `python3` and `venv` for running utility scripts locally.
+* A server with `docker` and `docker-compose` installed.
+* A Google Cloud Project with the Calendar API enabled.
+* A SendGrid account for email notifications.
+* (Optional) An Uptime Kuma instance for heartbeat monitoring.
+
+### 1. Configuration
+
+All configuration is handled through a `.env` file in the project root.
+
+First, copy the example file:
+```bash
+cp .env.example .env
+```
+Now, edit the .env file and fill in your values.
 
 ### Google Cloud Project Setup
 
@@ -250,19 +264,17 @@ Replace the content of your `~/calendar_bot/docker-compose.yml` with the followi
 ```yaml
 # ~/calendar_bot/docker-compose.yml (FINAL Public Repo Version)
 
-version: '3.8'
-
 services:
   calendar_bot:
     build: .
     container_name: calendar_bot-calendar_bot-1
     restart: unless-stopped
-    # Environment variables (like SENDGRID_API_KEY, GOOGLE_WEBHOOK_URL)
-    # are loaded from the shell environment where docker-compose is run.
-    dns: # Your DNS settings
-      - 192.168.50.2
-      - 1.1.1.1
-      - 8.8.8.8
+    environment:
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - SENDER_EMAIL=${SENDER_EMAIL}
+      - TO_EMAIL=${TO_EMAIL}
+      - UPTIME_KUMA_PUSH_URL=${UPTIME_KUMA_PUSH_URL}
+      - GOOGLE_WEBHOOK_URL=${GOOGLE_WEBHOOK_URL}
     ports:
       - "5001:5000" # Map host port 5001 to container port 5000
     volumes:
@@ -285,26 +297,13 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks:
+      - network_name
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "5"
-
-  cloudflared_tunnel:
-    image: cloudflare/cloudflared:latest
-    container_name: calendar_bot-cloudflared_tunnel-1
-    restart: unless-stopped
-    # The Cloudflare token is read directly from an OS environment variable
-    # that you will set in your shell (e.g., via load_runtime_env.sh).
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-    dns: # Your DNS settings
-      - 192.168.50.2
-      - 1.1.1.1
-      - 8.8.8.8
-    depends_on:
-      calendar_bot:
-        condition: service_healthy
 
   health_monitor:
     build:
@@ -332,6 +331,10 @@ services:
 # No need for top-level 'networks' or 'volumes' sections unless you specifically
 # need named volumes or external networks (not required for this setup).
 # Docker Compose creates a default bridge network for services defined in the same file.
+networks:
+  network_name:
+    external: true
+    name: network_name
 ```
 
 ### Create Runtime Environment Loader
@@ -386,6 +389,23 @@ fi
 
 echo "✅ Environment variables loaded into current shell session."
 ```
+
+###📊 Monitoring with Prometheus & Grafana
+
+The bot is a fully instrumented Prometheus target, exposing metrics at the /metrics endpoint (e.g., http://localhost:5000/metrics).
+
+Key Metrics Exposed
+
+Metric Name	Type	Labels	Description
+calendar_bot_polls_initiated_total	Counter	-	Total number of polling cycles started.
+calendar_bot_poll_duration_seconds	Histogram	-	Tracks the time taken to complete a polling cycle. Great for performance monitoring.
+calendar_bot_processed_event_ids_count	Gauge	-	The current number of event IDs stored in the bot's memory file.
+calendar_bot_events_cleaned_total	Counter	-	Total number of old event IDs removed by the weekly self-cleaning job.
+calendar_bot_events_processed_success_total	Counter	calendar_id, event_type	Counts successfully processed events, categorized by calendar and processing type (e.g., birthday_clone, invite_added).
+calendar_bot_events_processed_failure_total	Counter	calendar_id, reason	Counts failed event processing attempts, categorized by calendar and failure reason (e.g., api_http_error).
+calendar_bot_webhooks_received_total	Counter	-	Total number of inbound webhooks received from Google.
+
+You can add Prometheus as a data source in Grafana and build a custom dashboard to visualize these metrics and monitor the health and performance of your bot.
 
 ### Build and Run Services
 

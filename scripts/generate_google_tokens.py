@@ -50,7 +50,16 @@ def authorize_local_server(name, cfg, port_number):
     return True
 
 if __name__ == "__main__":
+
+    SECURE_GOOGLE_AUTH_PATH = Path("/home/joel/my_super_secure_secrets/google_auth")
     SERVICES = {
+
+        "testerbot": {
+            "client_secrets_filename": SECURE_GOOGLE_AUTH_PATH / "google_credentials_testerbot.json",
+            "token_filename": SECURE_GOOGLE_AUTH_PATH / "token_joeltesterbot.json",
+            "scopes": ["https://www.googleapis.com/auth/calendar"]
+        },
+
         "joeltimm_google_access": {
             "client_secrets_filename": "google_credentials_joeltimm.json",
             "token_filename": Path("/home/joel/my_super_secure_secrets/google_auth") / "token_joeltimm.json",

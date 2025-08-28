@@ -20,6 +20,7 @@ __pycache__/
 .env                        # The plaintext environment variables
 secrets/                    # The entire secrets directory
 *.env
+.env.test
 
 # Google OAuth tokens (they are personal and should not be in Git)
 common/auth/

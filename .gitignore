@@ -54,3 +54,4 @@ docker-compose.override.yml # If you use overrides
 .DS_Store
 start.sh
 .env.temp_inspect
+requirements.txt.old.aug.2025

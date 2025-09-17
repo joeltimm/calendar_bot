@@ -4,7 +4,7 @@ Flask
 gunicorn
 gevent
 apscheduler
-google-api-python-client
+google-api-python-client>=2.168.0
 google-auth-oauthlib
 tenacity
 python-dotenv

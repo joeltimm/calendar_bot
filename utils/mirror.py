@@ -151,6 +151,19 @@ def _delete_mirror(service, mirror_id):
             logger.error(f"Failed to delete shared-calendar mirror {mirror_id}: {e}")
 
 
+def remove_mirror(service, source_calendar_id, event_id):
+    """Delete the shared-calendar mirror for a now cancelled/deleted source event."""
+    mirror_map = load_mirror_map()
+    key = _key(source_calendar_id, event_id)
+    record = mirror_map.get(key)
+    if not record:
+        return
+    _delete_mirror(service, record.get('mirror_id'))
+    del mirror_map[key]
+    save_mirror_map(mirror_map)
+    logger.info("🗑️ Removed shared-calendar mirror for a cancelled source event.")
+
+
 def reconcile_mirrors(build_service):
     """Walk all tracked mirrors and propagate source moves/cancellations.
 

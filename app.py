@@ -23,9 +23,10 @@ from utils.logger import logger
 from utils.email_utils import send_error_email
 from utils.google_utils import build_calendar_service
 from utils.process_event import handle_event, load_processed, save_processed
-from utils.mirror import reconcile_mirrors
+from utils.mirror import reconcile_mirrors, remove_mirror
+from utils.sync import list_changes, load_sync_tokens, save_sync_tokens
 from utils.health import send_health_ping
-from utils.tenacity_utils import log_before_retry, log_and_email_on_final_failure
+from utils.tenacity_utils import log_before_retry
 
 # --- App Configuration Loading ---
 POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
@@ -99,27 +100,6 @@ def log_unhandled_exception(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = log_unhandled_exception
 
-# --- Tenacity-decorated API Call ---
-@retry(
-    retry=retry_if_exception_type(HttpError),
-    wait=wait_exponential(multiplier=2, min=4, max=30),
-    stop=stop_after_attempt(4),
-    before_sleep=log_before_retry,
-    retry_error_callback=log_and_email_on_final_failure,
-    reraise=True
-)
-def fetch_recent_events(service, calendar_id):
-    #Fetches upcoming events from a given calendar, with retry logic.
-    now_utc = datetime.now(timezone.utc).isoformat()
-    events_result = service.events().list(
-        calendarId=calendar_id,
-        timeMin=now_utc,
-        maxResults=100,
-        singleEvents=True,
-        orderBy='startTime'
-    ).execute()
-    return events_result.get('items', [])
-
 def send_daily_health_report():
     """
     Sends a daily email summarizing the bot's operation.
@@ -191,42 +171,93 @@ def clean_processed_events_list():
         send_error_email("Calendar Bot - Memory Cleaning Failed", f"An error occurred: {e}")
 
 # --- Main Application Logic ---
+# Event types the bot clones once (rather than adding the shared calendar as an
+# attendee), so they need de-dup tracking in processed_ids.
+CLONE_EVENT_TYPES = ('birthday', 'fromGmail')
+
+
+def _process_change(service, calendar_id, event, is_full_sync):
+    """Apply a single synced event change. Returns True if processed_ids changed.
+
+    - Cancelled/deleted -> remove any shared-calendar mirror and forget the id.
+    - Clone types (birthday/fromGmail) -> clone once, guarded by processed_ids,
+      on both full and incremental syncs (so events beyond the old window aren't
+      missed).
+    - Invite/mirror types -> acted on only for incremental changes (a create or
+      an edit). On a full sync they're skipped to avoid mass-acting on the
+      calendar's existing events at startup/resync; idempotent re-adds happen
+      whenever they next change.
+    """
+    eid = event['id']
+
+    if event.get('status') == 'cancelled':
+        remove_mirror(service, calendar_id, eid)
+        if eid in processed_ids:
+            processed_ids.discard(eid)
+            return True
+        return False
+
+    event_type = event.get('eventType', 'default')
+
+    if event_type in CLONE_EVENT_TYPES:
+        if eid in processed_ids:
+            return False  # already cloned
+        if is_full_sync:
+            processed_ids.add(eid)  # seed pre-existing clones; no backfill cloning
+            return True
+        logger.info(f"✅ Processing new {event_type} event: {eid} from {calendar_id}")
+        handle_event(service, calendar_id, eid, EVENTS_PROCESSED_SUCCESS_TOTAL)
+        processed_ids.add(eid)
+        return True
+
+    if is_full_sync:
+        return False  # don't mass-act on pre-existing invite/mirror events
+
+    logger.info(f"✅ Processing changed event: {eid} from {calendar_id}")
+    handle_event(service, calendar_id, eid, EVENTS_PROCESSED_SUCCESS_TOTAL)
+    return False  # invite/mirror are idempotent; no processed_ids entry needed
+
+
 def poll_calendar():
-    #The core job that polls all source calendars and processes new events.
-    with POLL_DURATION_SECONDS.time(): # CORRECTED: Timer wraps all work
+    # Incrementally syncs all source calendars and processes changed events.
+    with POLL_DURATION_SECONDS.time():
         POLLS_INITIATED_TOTAL.inc()
         if UPTIME_KUMA_PUSH_URL: send_health_ping(f"{UPTIME_KUMA_PUSH_URL}")
         logger.info("⏱️ Running scheduled poll...")
 
+        sync_tokens = load_sync_tokens()
+
         for cal in SOURCE_CALENDARS:
-            logger.info(f"🔍 Polling calendar: {cal}")
+            logger.info(f"🔍 Syncing calendar: {cal}")
             try:
                 service = build_calendar_service(cal)
-                events = fetch_recent_events(service, cal)
-                logger.info(f"📆 Retrieved {len(events)} upcoming events from {cal}.")
-                events_processed_in_this_run = False
+                events, new_token, is_full_sync = list_changes(service, cal, sync_tokens.get(cal))
+                kind = 'events (full sync, seeding)' if is_full_sync else 'changed events'
+                logger.info(f"📆 {cal}: {len(events)} {kind}.")
+                processed_changed = False
                 for event in events:
                     eid = event.get('id')
-                    summary = event.get('summary', '(no title)')
-                    if not eid or eid in processed_ids:
+                    if not eid:
                         continue
-                    logger.info(f"✅ Processing new event: {eid} - {summary} from {cal}")
                     try:
-                        # CORRECTED: Pass metric objects into the function
-                        handle_event(service, cal, eid, EVENTS_PROCESSED_SUCCESS_TOTAL)
-                        processed_ids.add(eid)
-                        events_processed_in_this_run = True
+                        if _process_change(service, cal, event, is_full_sync):
+                            processed_changed = True
                     except HttpError:
                         logger.warning(f"Skipping event {eid} for {cal} after final processing attempt failed...")
                         EVENTS_PROCESSED_FAILURE_TOTAL.labels(calendar_id=cal, reason='api_http_error').inc()
                         processed_ids.add(eid)
-                        events_processed_in_this_run = True
+                        processed_changed = True
                         continue
                     except Exception as e_handle:
                         logger.error(f"❌ An unexpected error occurred while handling event {eid}: {e_handle}", exc_info=True)
                         EVENTS_PROCESSED_FAILURE_TOTAL.labels(calendar_id=cal, reason='unexpected_error').inc()
                         send_error_email("Calendar Bot - UNEXPECTED Event Error", f"Event ID: {eid}\nError: {e_handle}")
-                if events_processed_in_this_run:
+
+                # Persist the new sync token so the next poll is incremental.
+                if new_token:
+                    sync_tokens[cal] = new_token
+                    save_sync_tokens(sync_tokens)
+                if processed_changed:
                     save_processed(processed_ids)
                     PROCESSED_EVENT_IDS_COUNT.set(len(processed_ids))
                     logger.info(f"💾 Updated processed event list for {cal}.")

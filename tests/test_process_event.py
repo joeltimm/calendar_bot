@@ -89,14 +89,15 @@ def test_skips_already_invited_event(mock_google_service, already_invited_event)
 
 def test_clones_birthday_event(mock_google_service, birthday_event):
     mock_google_service.events().get.return_value.execute.return_value = birthday_event
-    
-    handle_event(
-        service=mock_google_service, 
-        calendar_id='primary', 
-        event_id='birthday_event_789',
-        success_counter=MagicMock()
-    )
-    
+
+    with patch('utils.process_event.record_clone'):
+        handle_event(
+            service=mock_google_service,
+            calendar_id='primary',
+            event_id='birthday_event_789',
+            success_counter=MagicMock()
+        )
+
     mock_google_service.events().insert.assert_called_once()
     mock_google_service.events().patch.assert_not_called()
 

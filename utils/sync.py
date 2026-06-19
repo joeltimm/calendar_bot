@@ -21,12 +21,19 @@ from utils.logger import logger
 
 SYNC_TOKEN_FILE = Path(os.getenv('SYNC_TOKEN_FILE', 'data/sync_tokens.json'))
 _PAGE_SIZE = 2500  # max allowed; keeps the full initial sync to a few pages
+# Bump whenever the list() query parameters change: a syncToken is only valid
+# for the exact query that produced it, so a change must force a full resync.
+# v2: switched from singleEvents=True (per-instance) to series-level sync.
+_SYNC_VERSION = 2
 
 
 def load_sync_tokens():
     if SYNC_TOKEN_FILE.exists():
         try:
-            return json.loads(SYNC_TOKEN_FILE.read_text())
+            data = json.loads(SYNC_TOKEN_FILE.read_text())
+            if isinstance(data, dict) and data.get('_version') == _SYNC_VERSION:
+                return data.get('tokens', {})
+            logger.info("🔄 Sync token version changed; ignoring old tokens (one full resync).")
         except json.JSONDecodeError:
             logger.error("🔄 Sync token file is corrupt; starting fresh (full resync).")
     return {}
@@ -34,7 +41,7 @@ def load_sync_tokens():
 
 def save_sync_tokens(tokens):
     SYNC_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SYNC_TOKEN_FILE.write_text(json.dumps(tokens, indent=2))
+    SYNC_TOKEN_FILE.write_text(json.dumps({'_version': _SYNC_VERSION, 'tokens': tokens}, indent=2))
 
 
 def _list_all(service, base_params):
@@ -67,8 +74,8 @@ def list_changes(service, calendar_id, stored_token):
     """
     common = dict(
         calendarId=calendar_id,
-        singleEvents=True,
-        showDeleted=True,  # so deletions/cancellations are delivered incrementally
+        singleEvents=False,  # series-level: recurring events as masters, not per-instance
+        showDeleted=True,    # so deletions/cancellations are delivered incrementally
         maxResults=_PAGE_SIZE,
     )
     if stored_token:

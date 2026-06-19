@@ -9,6 +9,7 @@ from googleapiclient.errors import HttpError
 from utils.logger import logger
 from utils.tenacity_utils import log_before_retry, log_and_email_on_final_failure
 from utils.mirror import is_self_organized, ensure_mirror, remove_mirror
+from utils.clones import record_clone
 
 INVITE_EMAIL = os.getenv('INVITE_EMAIL', 'joelandtaylor@gmail.com')
 PROCESSED_FILE_PATH_STR = os.getenv('PROCESSED_FILE', 'data/processed_events.json')
@@ -73,6 +74,7 @@ def handle_event(service, calendar_id: str, event_id: str, success_counter, invi
             "attendees":   [{"email": invite_email}], "transparency": "transparent",
         }
         inserted = service.events().insert(calendarId=calendar_id, body=new_birthday_event, sendUpdates="all").execute()
+        record_clone(calendar_id, event_id, inserted['id'])  # so the clone is cleaned up if the source is removed
         success_counter.labels(calendar_id=calendar_id, event_type='birthday_clone').inc()
         logger.info(f"✅ Cloned birthday as new event ID {inserted['id']} for “{inserted.get('summary')}”")
         return

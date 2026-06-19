@@ -49,15 +49,34 @@ def clean_processed_ids():
     app_module.processed_ids.update(saved)
 
 
-def test_process_change_cancelled_removes_mirror(clean_processed_ids):
+def test_process_change_cancelled_removes_mirror_and_clone(clean_processed_ids):
     clean_processed_ids.add('evt1')
     event = {'id': 'evt1', 'status': 'cancelled'}
-    with patch('app.remove_mirror') as mock_remove, patch('app.handle_event') as mock_handle:
+    with patch('app.remove_mirror') as mock_remove, patch('app.remove_clone') as mock_clone, \
+         patch('app.handle_event') as mock_handle:
         changed = _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=False)
     mock_remove.assert_called_once()
+    mock_clone.assert_called_once()
     mock_handle.assert_not_called()
     assert 'evt1' not in clean_processed_ids
     assert changed is True
+
+
+def test_process_change_routes_exception_to_mirror(clean_processed_ids):
+    event = {'id': 'm1_i', 'recurringEventId': 'm1', 'status': 'cancelled',
+             'originalStartTime': {'dateTime': '2030-01-01T09:00:00Z'}}
+    with patch('app.apply_instance_exception') as mock_exc, patch('app.handle_event') as mock_handle:
+        _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=False)
+    mock_exc.assert_called_once()
+    mock_handle.assert_not_called()
+
+
+def test_process_change_skips_exception_on_full_sync(clean_processed_ids):
+    event = {'id': 'm1_i', 'recurringEventId': 'm1',
+             'originalStartTime': {'dateTime': '2030-01-01T09:00:00Z'}}
+    with patch('app.apply_instance_exception') as mock_exc:
+        _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=True)
+    mock_exc.assert_not_called()
 
 
 def test_process_change_clones_new_birthday_incremental(clean_processed_ids):

@@ -23,7 +23,8 @@ from utils.logger import logger
 from utils.email_utils import send_error_email
 from utils.google_utils import build_calendar_service
 from utils.process_event import handle_event, load_processed, save_processed
-from utils.mirror import reconcile_mirrors, remove_mirror
+from utils.mirror import reconcile_mirrors, remove_mirror, apply_instance_exception
+from utils.clones import remove_clone
 from utils.sync import list_changes, load_sync_tokens, save_sync_tokens
 from utils.health import send_health_ping
 from utils.tenacity_utils import log_before_retry
@@ -190,8 +191,18 @@ def _process_change(service, calendar_id, event, is_full_sync):
     """
     eid = event['id']
 
+    # A single-occurrence exception of a recurring series (one instance edited or
+    # cancelled): reflect it onto the mirror's matching occurrence rather than
+    # treating it as a standalone event. On a full sync no mirrors exist yet, so
+    # this is a no-op there.
+    if event.get('recurringEventId'):
+        if not is_full_sync:
+            apply_instance_exception(service, calendar_id, event)
+        return False
+
     if event.get('status') == 'cancelled':
         remove_mirror(service, calendar_id, eid)
+        remove_clone(service, calendar_id, eid)
         if eid in processed_ids:
             processed_ids.discard(eid)
             return True
@@ -234,6 +245,9 @@ def poll_calendar():
                 events, new_token, is_full_sync = list_changes(service, cal, sync_tokens.get(cal))
                 kind = 'events (full sync, seeding)' if is_full_sync else 'changed events'
                 logger.info(f"📆 {cal}: {len(events)} {kind}.")
+                # Process masters/singles before instance-exceptions so a series'
+                # mirror exists before we adjust one of its occurrences.
+                events.sort(key=lambda e: 1 if e.get('recurringEventId') else 0)
                 processed_changed = False
                 for event in events:
                     eid = event.get('id')

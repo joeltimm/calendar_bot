@@ -5,7 +5,10 @@ from unittest.mock import MagicMock, patch
 from googleapiclient.errors import HttpError
 
 from utils import mirror
-from utils.mirror import ensure_mirror, reconcile_mirrors, is_self_organized, _snapshot, SHARED_CALENDAR_ID
+from utils.mirror import (
+    ensure_mirror, reconcile_mirrors, is_self_organized, _snapshot, _mirror_body,
+    apply_instance_exception, SHARED_CALENDAR_ID,
+)
 
 
 class _Resp:
@@ -122,3 +125,50 @@ def test_reconcile_patches_mirror_when_source_moved(event):
          patch.object(mirror, 'save_mirror_map'):
         reconcile_mirrors(lambda cal: service)
     service.events().patch.assert_called_once()
+
+
+# --- recurrence + instance exceptions ---
+
+def test_mirror_body_copies_recurrence():
+    ev = {'summary': 'Weekly', 'start': {}, 'end': {}, 'recurrence': ['RRULE:FREQ=WEEKLY']}
+    assert _mirror_body(ev)['recurrence'] == ['RRULE:FREQ=WEEKLY']
+
+
+def _exception(status=None):
+    e = {
+        'id': 'master1_20300101', 'recurringEventId': 'master1',
+        'originalStartTime': {'dateTime': '2030-01-01T09:00:00Z'},
+        'start': {'dateTime': '2030-01-01T15:00:00Z'}, 'end': {'dateTime': '2030-01-01T16:00:00Z'},
+        'summary': 'Moved occurrence',
+    }
+    if status:
+        e['status'] = status
+    return e
+
+
+def test_apply_instance_exception_cancels_mirror_instance():
+    service = MagicMock()
+    service.events().instances().execute.return_value = {'items': [{'id': 'mir1_i', 'status': 'confirmed'}]}
+    mm = {'cal@x.com::master1': {'mirror_id': 'mir1', 'snapshot': {}}}
+    with patch.object(mirror, 'load_mirror_map', return_value=mm):
+        apply_instance_exception(service, 'cal@x.com', _exception(status='cancelled'))
+    service.events().delete.assert_called_once()
+    service.events().patch.assert_not_called()
+
+
+def test_apply_instance_exception_moves_mirror_instance():
+    service = MagicMock()
+    service.events().instances().execute.return_value = {'items': [{'id': 'mir1_i', 'status': 'confirmed'}]}
+    mm = {'cal@x.com::master1': {'mirror_id': 'mir1', 'snapshot': {}}}
+    with patch.object(mirror, 'load_mirror_map', return_value=mm):
+        apply_instance_exception(service, 'cal@x.com', _exception())
+    service.events().patch.assert_called_once()
+    service.events().delete.assert_not_called()
+
+
+def test_apply_instance_exception_noop_when_series_not_mirrored():
+    service = MagicMock()
+    with patch.object(mirror, 'load_mirror_map', return_value={}):
+        apply_instance_exception(service, 'cal@x.com', _exception(status='cancelled'))
+    service.events().delete.assert_not_called()
+    service.events().patch.assert_not_called()

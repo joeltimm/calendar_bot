@@ -44,19 +44,41 @@ def _snapshot(event):
         'end': event.get('end'),
         'location': event.get('location'),
         'status': event.get('status'),
+        'recurrence': event.get('recurrence'),  # so recurrence edits re-sync the mirror
     }
 
 
 def _mirror_body(event):
-    """The event body written onto the shared calendar."""
+    """The event body written onto the shared calendar.
+
+    For a recurring master we copy its recurrence rule so the mirror is itself a
+    recurring event (rather than N separate mirror events).
+    """
     organizer_email = (event.get('organizer') or {}).get('email', 'someone')
-    return {
+    start = dict(event.get('start') or {})
+    end = dict(event.get('end') or {})
+    body = {
         'summary': event.get('summary', '(no title)'),
         'description': f"Mirrored by Calendar Bot from an event {organizer_email} invited you to.",
-        'start': event.get('start'),
-        'end': event.get('end'),
+        'start': start,
+        'end': end,
         'location': event.get('location'),
     }
+    if event.get('recurrence'):
+        body['recurrence'] = event['recurrence']
+        # Recurring events with a dateTime require a time zone; default to UTC if absent.
+        for slot in (start, end):
+            if slot.get('dateTime') and not slot.get('timeZone'):
+                slot['timeZone'] = 'UTC'
+    return body
+
+
+def _ensure_timezone(slot):
+    """Recurring-event dateTimes need a timeZone; default to UTC if missing."""
+    if slot and slot.get('dateTime') and not slot.get('timeZone'):
+        slot = dict(slot)
+        slot['timeZone'] = 'UTC'
+    return slot
 
 
 def _end_dt(event):
@@ -162,6 +184,60 @@ def remove_mirror(service, source_calendar_id, event_id):
     del mirror_map[key]
     save_mirror_map(mirror_map)
     logger.info("🗑️ Removed shared-calendar mirror for a cancelled source event.")
+
+
+def apply_instance_exception(service, source_calendar_id, exception_event):
+    """Reflect a single-occurrence change of a recurring source series onto its
+    mirror: cancel or move the matching instance of the mirror event.
+
+    No-op if the series isn't mirrored (e.g. it's self-organized) or the matching
+    mirror instance can't be located.
+    """
+    master_id = exception_event.get('recurringEventId')
+    original_start = exception_event.get('originalStartTime') or {}
+    start_val = original_start.get('dateTime') or original_start.get('date')
+    if not master_id or not start_val:
+        return
+
+    record = load_mirror_map().get(_key(source_calendar_id, master_id))
+    if not record or not record.get('mirror_id'):
+        return  # series not mirrored (likely self-organized) -> nothing to do
+    mirror_id = record['mirror_id']
+
+    try:
+        resp = service.events().instances(
+            calendarId=SHARED_CALENDAR_ID, eventId=mirror_id,
+            originalStart=start_val, showDeleted=True,
+        ).execute()
+    except HttpError as e:
+        logger.error(f"Mirror exception: could not list mirror instance for {mirror_id} @ {start_val}: {e}")
+        return
+
+    instances = resp.get('items', [])
+    if not instances:
+        return  # no matching mirror instance to act on
+    instance = instances[0]
+
+    try:
+        if exception_event.get('status') == 'cancelled':
+            if instance.get('status') != 'cancelled':
+                service.events().delete(
+                    calendarId=SHARED_CALENDAR_ID, eventId=instance['id']
+                ).execute()
+                logger.info("🗑️ Cancelled a single mirror occurrence to match the source.")
+        else:
+            service.events().patch(
+                calendarId=SHARED_CALENDAR_ID, eventId=instance['id'],
+                body={
+                    'summary': exception_event.get('summary', instance.get('summary')),
+                    'start': _ensure_timezone(exception_event.get('start')),
+                    'end': _ensure_timezone(exception_event.get('end')),
+                    'location': exception_event.get('location'),
+                },
+            ).execute()
+            logger.info("🔁 Moved a single mirror occurrence to match the source.")
+    except HttpError as e:
+        logger.error(f"Mirror exception: failed to apply to mirror instance {instance.get('id')}: {e}")
 
 
 def reconcile_mirrors(build_service):

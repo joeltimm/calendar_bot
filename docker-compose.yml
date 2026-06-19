@@ -9,6 +9,9 @@ services:
       - TO_EMAIL=${TO_EMAIL}
       - UPTIME_KUMA_PUSH_URL=${UPTIME_KUMA_PUSH_URL}
       - GOOGLE_WEBHOOK_URL=${GOOGLE_WEBHOOK_URL}
+      # Tokens are mounted at /app/common/auth below; point credentials.py there
+      # (it otherwise defaults to /app/google_auth, which has no tokens).
+      - GOOGLE_AUTH_PATH=/app/common/auth
     volumes:
       - ./data:/app/data
       - /home/joel/my_super_secure_secrets:/app/secrets

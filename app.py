@@ -11,7 +11,8 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
 from googleapiclient.errors import HttpError
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
+from requests.exceptions import RequestException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
 # Prometheus client imports - ENSURE THESE ARE PRESENT AND CORRECT
@@ -32,6 +33,15 @@ SOURCE_CALENDARS = [cal.strip() for cal in SOURCE_CALENDARS_STR.split(',') if ca
 DEBUG_LOGGING = os.getenv("DEBUG_LOGGING", "false").lower() == "true"
 UPTIME_KUMA_PUSH_URL = os.getenv("UPTIME_KUMA_PUSH_URL") # For Uptime Kuma heartbeat
 GOOGLE_WEBHOOK_URL = os.getenv("GOOGLE_WEBHOOK_URL")
+
+# --- Webhook channel lifecycle configuration ---
+# Google Calendar watch channels expire (max ~7 days). We renew each channel
+# this long *before* its reported expiration so notifications never lapse.
+WEBHOOK_RENEW_BUFFER = timedelta(hours=6)
+# Fallback TTL used only if Google's watch() response omits an expiration.
+WEBHOOK_DEFAULT_TTL = timedelta(days=7)
+# If registration fails for a calendar, retry this soon instead of waiting for expiry.
+WEBHOOK_RETRY_DELAY = timedelta(minutes=5)
 
 # --- Prometheus Metrics Definitions ---
 POLLS_INITIATED_TOTAL = Counter(
@@ -74,6 +84,9 @@ WEBHOOK_REGISTRATIONS_TOTAL = Counter(
 app = Flask(__name__)
 processed_ids = set()
 scheduler = BackgroundScheduler()
+# Tracks the currently-active watch channel per calendar so we can stop the old
+# one when renewing: {calendar_id: {'id', 'resourceId', 'expiration'}}
+active_channels = {}
 
 # --- Global Exception Handler ---
 def log_unhandled_exception(exc_type, exc_value, exc_traceback):
@@ -229,31 +242,115 @@ def poll_calendar():
                 logger.error(f"Failed to send heartbeat to Uptime Kuma: {e}")
 
 # --- Webhook Registration ---
+@retry(
+    # Ride out transient boot-time failures (e.g. DNS not ready, token-refresh
+    # network errors, Google 5xx/429) so a brief hiccup doesn't leave the
+    # calendar unwatched until the next restart.
+    retry=retry_if_exception_type((HttpError, TransportError, RequestException, OSError)),
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    stop=stop_after_attempt(5),
+    before_sleep=log_before_retry,
+    reraise=True
+)
+def _create_watch_channel(cal):
+    """Builds an authed service and creates a fresh watch channel for one calendar.
+
+    Retries transient network/API errors. Returns (service, watch_response).
+    """
+    service = build_calendar_service(cal)
+    channel_body = {
+        'id': str(uuid.uuid4()),
+        'type': 'web_hook',
+        'address': GOOGLE_WEBHOOK_URL
+    }
+    response = service.events().watch(calendarId=cal, body=channel_body).execute()
+    return service, response
+
+
+def _channel_expiration(response):
+    """Returns the channel expiration as a UTC datetime, falling back to the
+    default TTL if Google didn't report one."""
+    exp_ms = response.get('expiration')
+    if exp_ms:
+        return datetime.fromtimestamp(int(exp_ms) / 1000, tz=timezone.utc)
+    return datetime.now(timezone.utc) + WEBHOOK_DEFAULT_TTL
+
+
+def _schedule_webhook_renewal(earliest_expiration, any_failure):
+    """(Re)schedules the self-perpetuating webhook renewal job.
+
+    Renews before the soonest channel expires; if any registration failed,
+    retries soon instead of waiting for expiry.
+    """
+    now = datetime.now(timezone.utc)
+    if any_failure:
+        next_run = now + WEBHOOK_RETRY_DELAY
+        reason = "retry after failure"
+    elif earliest_expiration:
+        next_run = earliest_expiration - WEBHOOK_RENEW_BUFFER
+        if next_run <= now:  # safety net; channels should outlive the buffer
+            next_run = now + WEBHOOK_RETRY_DELAY
+        reason = "scheduled renewal"
+    else:
+        next_run = now + WEBHOOK_DEFAULT_TTL - WEBHOOK_RENEW_BUFFER
+        reason = "default renewal"
+
+    scheduler.add_job(
+        register_webhooks, 'date', run_date=next_run,
+        id='webhook_renewal_job', replace_existing=True
+    )
+    logger.info(f"🗓️ Next webhook {reason} scheduled for {next_run.isoformat()}.")
+
+
 def register_webhooks():
     """
-    Registers a watch channel with Google for each source calendar.
-    This tells Google where to send webhook notifications.
+    Registers (or renews) a watch channel with Google for each source calendar
+    and schedules the next renewal before the channels expire. This tells Google
+    where to send webhook notifications and keeps them alive indefinitely.
     """
     if not GOOGLE_WEBHOOK_URL:
         logger.warning("🔗 GOOGLE_WEBHOOK_URL is not set. Skipping webhook registration.")
         return
 
-    logger.info("🔗 Attempting to register webhooks with Google...")
+    logger.info("🔗 Attempting to register/renew webhooks with Google...")
+    earliest_expiration = None
+    any_failure = False
+
     for cal in SOURCE_CALENDARS:
         try:
-            service = build_calendar_service(cal)
-            channel_body = {
-                'id': str(uuid.uuid4()),
-                'type': 'web_hook',
-                'address': GOOGLE_WEBHOOK_URL
+            service, response = _create_watch_channel(cal)
+
+            # Stop the previous channel for this calendar so old channels don't
+            # keep firing duplicate notifications (and to avoid leaking quota).
+            old = active_channels.get(cal)
+            if old and old.get('resourceId'):
+                try:
+                    service.channels().stop(
+                        body={'id': old['id'], 'resourceId': old['resourceId']}
+                    ).execute()
+                    logger.info(f"🛑 Stopped previous webhook channel for {cal}.")
+                except Exception as e:
+                    logger.warning(f"Could not stop previous channel for {cal}: {e}")
+
+            active_channels[cal] = {
+                'id': response.get('id'),
+                'resourceId': response.get('resourceId'),
+                'expiration': response.get('expiration'),
             }
-            service.events().watch(calendarId=cal, body=channel_body).execute()
-            logger.info(f"✅ Successfully registered webhook for {cal} at {GOOGLE_WEBHOOK_URL}")
+
+            exp_dt = _channel_expiration(response)
+            if earliest_expiration is None or exp_dt < earliest_expiration:
+                earliest_expiration = exp_dt
+
+            logger.info(f"✅ Successfully registered webhook for {cal} at {GOOGLE_WEBHOOK_URL} (expires {exp_dt.isoformat()}).")
             WEBHOOK_REGISTRATIONS_TOTAL.labels(calendar_id=cal, status='success').inc()
         except Exception as e:
+            any_failure = True
             logger.error(f"❌ Failed to register webhook for {cal}: {e}", exc_info=True)
             WEBHOOK_REGISTRATIONS_TOTAL.labels(calendar_id=cal, status='failure').inc()
             send_error_email("Calendar Bot - CRITICAL Webhook Registration Failed", f"Could not register webhook for {cal}.\nError: {e}")
+
+    _schedule_webhook_renewal(earliest_expiration, any_failure)
 
 
 # --- Flask Web Routes ---

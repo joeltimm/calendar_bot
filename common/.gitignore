@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env
+.pytest_cache/
+
+# Auth tokens and credentials
+*token*.json
+*credentials*.json
+*secret*.json
+*client_secret*.json
+*service_account*.json
+*api_key*.json
+*auth*.json
+*access_token*.json
+*refresh_token*.json
+*oauth2_token*.json
+*.yaml
+*.txt
+
+# Local auth directory
+auth/
+
+# Logs
+logs/
+*.log
+webhook_debug.log
+debug.log
+
+# Processed events tracking
+processed_events.json
+
+# macOS system files
+.DS_Store

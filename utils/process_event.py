@@ -8,6 +8,7 @@ from googleapiclient.errors import HttpError
 
 from utils.logger import logger
 from utils.tenacity_utils import log_before_retry, log_and_email_on_final_failure
+from utils.mirror import is_self_organized, ensure_mirror
 
 INVITE_EMAIL = os.getenv('INVITE_EMAIL', 'joelandtaylor@gmail.com')
 PROCESSED_FILE_PATH_STR = os.getenv('PROCESSED_FILE', 'data/processed_events.json')
@@ -66,6 +67,14 @@ def handle_event(service, calendar_id: str, event_id: str, success_counter, invi
 
     if 'start' not in event or 'end' not in event:
         logger.warning(f"⚠️ Skipping event {event_id}: missing start or end.")
+        return
+
+    # If the user doesn't organize this event we can't add an attendee, so mirror
+    # it onto the shared calendar instead (and keep it synced via reconciliation).
+    if not is_self_organized(event):
+        if ensure_mirror(service, calendar_id, event):
+            success_counter.labels(calendar_id=calendar_id, event_type='mirrored').inc()
+            logger.info(f"🪞 Mirrored non-organized event “{summary}” ({event_id}) to shared calendar.")
         return
 
     attendees = event.get('attendees', [])

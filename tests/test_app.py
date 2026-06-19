@@ -1,10 +1,11 @@
 # ~/calendar_bot/tests/test_app.py
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 # Import the Flask app object from your main application file
-from app import app as flask_app
+import app as app_module
+from app import app as flask_app, _process_change
 
 @pytest.fixture()
 def app():
@@ -37,6 +38,69 @@ def test_metrics_endpoint(client):
     # Assert: Check for success and that a known metric is present in the response
     assert response.status_code == 200
     assert b'calendar_bot_polls_initiated_total' in response.data
+
+@pytest.fixture()
+def clean_processed_ids():
+    """Snapshot and restore app.processed_ids around a test."""
+    saved = set(app_module.processed_ids)
+    app_module.processed_ids.clear()
+    yield app_module.processed_ids
+    app_module.processed_ids.clear()
+    app_module.processed_ids.update(saved)
+
+
+def test_process_change_cancelled_removes_mirror(clean_processed_ids):
+    clean_processed_ids.add('evt1')
+    event = {'id': 'evt1', 'status': 'cancelled'}
+    with patch('app.remove_mirror') as mock_remove, patch('app.handle_event') as mock_handle:
+        changed = _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=False)
+    mock_remove.assert_called_once()
+    mock_handle.assert_not_called()
+    assert 'evt1' not in clean_processed_ids
+    assert changed is True
+
+
+def test_process_change_clones_new_birthday_incremental(clean_processed_ids):
+    event = {'id': 'b1', 'eventType': 'birthday'}
+    with patch('app.handle_event') as mock_handle:
+        changed = _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=False)
+    mock_handle.assert_called_once()
+    assert 'b1' in clean_processed_ids
+    assert changed is True
+
+
+def test_process_change_seeds_birthday_on_full_sync(clean_processed_ids):
+    # Full sync must not backfill-clone pre-existing birthdays, only seed them.
+    event = {'id': 'b1', 'eventType': 'birthday'}
+    with patch('app.handle_event') as mock_handle:
+        changed = _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=True)
+    mock_handle.assert_not_called()
+    assert 'b1' in clean_processed_ids
+    assert changed is True
+
+
+def test_process_change_skips_already_cloned(clean_processed_ids):
+    clean_processed_ids.add('b1')
+    event = {'id': 'b1', 'eventType': 'birthday'}
+    with patch('app.handle_event') as mock_handle:
+        changed = _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=False)
+    mock_handle.assert_not_called()
+    assert changed is False
+
+
+def test_process_change_skips_invite_on_full_sync(clean_processed_ids):
+    event = {'id': 'r1', 'eventType': 'default'}
+    with patch('app.handle_event') as mock_handle:
+        _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=True)
+    mock_handle.assert_not_called()
+
+
+def test_process_change_acts_on_invite_incremental(clean_processed_ids):
+    event = {'id': 'r1', 'eventType': 'default'}
+    with patch('app.handle_event') as mock_handle:
+        _process_change(MagicMock(), 'cal@x.com', event, is_full_sync=False)
+    mock_handle.assert_called_once()
+
 
 def test_webhook_triggers_poll(client):
     """

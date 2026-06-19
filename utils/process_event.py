@@ -8,11 +8,23 @@ from googleapiclient.errors import HttpError
 
 from utils.logger import logger
 from utils.tenacity_utils import log_before_retry, log_and_email_on_final_failure
-from utils.mirror import is_self_organized, ensure_mirror
+from utils.mirror import is_self_organized, ensure_mirror, remove_mirror
 
 INVITE_EMAIL = os.getenv('INVITE_EMAIL', 'joelandtaylor@gmail.com')
 PROCESSED_FILE_PATH_STR = os.getenv('PROCESSED_FILE', 'data/processed_events.json')
 PROCESSED_FILE = Path(PROCESSED_FILE_PATH_STR)
+
+# Event types that cannot carry attendees and aren't meaningful to clone/mirror;
+# attempting to add an attendee to these returns an API error, so we skip them.
+SKIP_EVENT_TYPES = ('outOfOffice', 'focusTime', 'workingLocation')
+
+
+def _user_declined(event):
+    """True if the calendar owner's own attendee entry is 'declined'."""
+    for attendee in event.get('attendees', []):
+        if attendee.get('self') and attendee.get('responseStatus') == 'declined':
+            return True
+    return False
 
 def load_processed():
     if PROCESSED_FILE.exists():
@@ -38,6 +50,20 @@ def handle_event(service, calendar_id: str, event_id: str, success_counter, invi
     event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
     summary = event.get('summary', '(no title)')
     event_type = event.get("eventType", "default") # Use "default" if type is not specified
+
+    # (#5) Skip event types that can't have attendees / aren't meaningful to mirror.
+    if event_type in SKIP_EVENT_TYPES:
+        logger.info(f"⏭️ Skipping '{event_type}' event “{summary}” ({event_id}); not actionable.")
+        return
+
+    # (#7) Skip cancelled or declined events; drop any stale mirror for a declined one.
+    if event.get('status') == 'cancelled':
+        logger.info(f"⏭️ Skipping cancelled event “{summary}” ({event_id}).")
+        return
+    if _user_declined(event):
+        logger.info(f"⏭️ Skipping declined event “{summary}” ({event_id}).")
+        remove_mirror(service, calendar_id, event_id)
+        return
 
     if event_type == "birthday":
         logger.info(f"🎂 Detected 'birthday' event: “{summary}”. Cloning to shared calendar.")

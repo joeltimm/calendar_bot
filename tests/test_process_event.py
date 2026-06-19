@@ -114,6 +114,44 @@ def not_organized_event():
     }
 
 
+def test_skips_special_event_type(mock_google_service):
+    ooo = {
+        'id': 'ooo1', 'summary': 'Out of office', 'eventType': 'outOfOffice',
+        'start': {'dateTime': '2030-09-05T10:00:00Z'}, 'end': {'dateTime': '2030-09-05T11:00:00Z'},
+    }
+    mock_google_service.events().get.return_value.execute.return_value = ooo
+    handle_event(service=mock_google_service, calendar_id='primary', event_id='ooo1', success_counter=MagicMock())
+    mock_google_service.events().patch.assert_not_called()
+    mock_google_service.events().insert.assert_not_called()
+
+
+def test_skips_cancelled_event(mock_google_service):
+    cancelled = {
+        'id': 'c1', 'summary': 'Gone', 'eventType': 'default', 'status': 'cancelled',
+        'start': {'dateTime': '2030-09-05T10:00:00Z'}, 'end': {'dateTime': '2030-09-05T11:00:00Z'},
+    }
+    mock_google_service.events().get.return_value.execute.return_value = cancelled
+    handle_event(service=mock_google_service, calendar_id='primary', event_id='c1', success_counter=MagicMock())
+    mock_google_service.events().patch.assert_not_called()
+    mock_google_service.events().insert.assert_not_called()
+
+
+def test_skips_declined_event_and_drops_mirror(mock_google_service):
+    declined = {
+        'id': 'd1', 'summary': 'Declined Mtg', 'eventType': 'default',
+        'organizer': {'email': 'boss@example.com', 'self': False},
+        'start': {'dateTime': '2030-09-05T10:00:00Z'}, 'end': {'dateTime': '2030-09-05T11:00:00Z'},
+        'attendees': [{'email': 'user@example.com', 'self': True, 'responseStatus': 'declined'}],
+    }
+    mock_google_service.events().get.return_value.execute.return_value = declined
+    with patch('utils.process_event.remove_mirror') as mock_remove, \
+         patch('utils.process_event.ensure_mirror') as mock_ensure:
+        handle_event(service=mock_google_service, calendar_id='primary', event_id='d1', success_counter=MagicMock())
+    mock_ensure.assert_not_called()
+    mock_remove.assert_called_once()
+    mock_google_service.events().patch.assert_not_called()
+
+
 def test_mirrors_non_organized_event(mock_google_service, not_organized_event):
     mock_google_service.events().get.return_value.execute.return_value = not_organized_event
 

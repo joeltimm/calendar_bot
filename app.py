@@ -23,6 +23,7 @@ from utils.logger import logger
 from utils.email_utils import send_error_email
 from utils.google_utils import build_calendar_service
 from utils.process_event import handle_event, load_processed, save_processed
+from utils.mirror import reconcile_mirrors
 from utils.health import send_health_ping
 from utils.tenacity_utils import log_before_retry, log_and_email_on_final_failure
 
@@ -233,6 +234,13 @@ def poll_calendar():
                 logger.error(f"❌ An unexpected error occurred during the poll for {cal}: {e_generic}", exc_info=True)
                 EVENTS_PROCESSED_FAILURE_TOTAL.labels(calendar_id=cal, reason='poll_level_error').inc()
                 send_error_email("Calendar Bot - UNEXPECTED Polling Error", f"Calendar: {cal}\nError: {e_generic}")
+
+        # Keep shared-calendar mirrors of non-organized events in sync: propagate
+        # source moves/cancellations and prune long-past entries.
+        try:
+            reconcile_mirrors(build_calendar_service)
+        except Exception as e_mirror:
+            logger.error(f"❌ Mirror reconciliation failed: {e_mirror}", exc_info=True)
 
         if UPTIME_KUMA_PUSH_URL:
             try:

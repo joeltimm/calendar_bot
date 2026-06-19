@@ -1,7 +1,7 @@
 # ~/calendar_bot/tests/test_process_event.py
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # Import the function we want to test
 from utils.process_event import handle_event
@@ -99,6 +99,36 @@ def test_clones_birthday_event(mock_google_service, birthday_event):
     
     mock_google_service.events().insert.assert_called_once()
     mock_google_service.events().patch.assert_not_called()
+
+@pytest.fixture
+def not_organized_event():
+    """A regular event the user was invited to but does not organize."""
+    return {
+        'id': 'invited_event_xyz',
+        'summary': "Someone Else's Meeting",
+        'eventType': 'default',
+        'organizer': {'email': 'boss@example.com', 'self': False},
+        'start': {'dateTime': '2025-09-05T10:00:00Z'},
+        'end': {'dateTime': '2025-09-05T11:00:00Z'},
+        'attendees': [{'email': 'user@example.com'}],
+    }
+
+
+def test_mirrors_non_organized_event(mock_google_service, not_organized_event):
+    mock_google_service.events().get.return_value.execute.return_value = not_organized_event
+
+    with patch('utils.process_event.ensure_mirror', return_value=True) as mock_ensure:
+        handle_event(
+            service=mock_google_service,
+            calendar_id='primary',
+            event_id='invited_event_xyz',
+            success_counter=MagicMock(),
+        )
+
+    # Should mirror, not try to add an attendee to an event it doesn't organize.
+    mock_ensure.assert_called_once()
+    mock_google_service.events().patch.assert_not_called()
+
 
 def test_duplicates_and_deletes_gmail_event(mock_google_service, from_gmail_event):
     mock_google_service.events().get.return_value.execute.return_value = from_gmail_event

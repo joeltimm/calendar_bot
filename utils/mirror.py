@@ -17,6 +17,7 @@ in MIRROR_FILE.
 """
 import json
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -27,6 +28,14 @@ from utils.logger import logger
 # The shared calendar we write mirrors onto (same address used for invites).
 SHARED_CALENDAR_ID = os.getenv('INVITE_EMAIL', 'joelandtaylor@gmail.com')
 MIRROR_FILE = Path(os.getenv('MIRROR_FILE', 'data/mirrored_events.json'))
+# The calendars the bot syncs. An event organized by one of them never needs a
+# mirror: the bot invites the shared calendar from that organizer's side and
+# Google propagates moves/cancellations natively.
+SOURCE_CALENDARS = [
+    cal.strip().lower()
+    for cal in os.getenv('SOURCE_CALENDARS', 'joeltimm@gmail.com,tsouthworth@gmail.com').split(',')
+    if cal.strip()
+]
 # Stop tracking (and reconciling) mirrors once the source event ended this long
 # ago. The mirror is left in place as a historical record.
 PRUNE_AFTER = timedelta(days=2)
@@ -81,8 +90,39 @@ def _ensure_timezone(slot):
     return slot
 
 
+_UNTIL_RE = re.compile(r'UNTIL=(\d{8})(?:T(\d{6})Z?)?')
+
+
+def _series_end_dt(event):
+    """UTC end of a recurring series from its RRULE UNTIL, or None if open-ended.
+
+    A COUNT-bounded rule is treated as open-ended too (never pruned); it just
+    costs one reconcile read per poll rather than risking an orphaned mirror.
+    """
+    for rule in event.get('recurrence') or []:
+        if not rule.startswith('RRULE'):
+            continue
+        m = _UNTIL_RE.search(rule)
+        if not m:
+            return None
+        try:
+            end = datetime.strptime(m.group(1), '%Y%m%d').replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+        # UNTIL bounds the *start* of the last occurrence; pad a day so the
+        # final occurrence has certainly ended before we consider pruning.
+        return end + timedelta(days=1)
+    return None
+
+
 def _end_dt(event):
-    """Best-effort UTC end datetime for an event (handles all-day 'date')."""
+    """Best-effort UTC end datetime for an event (handles all-day 'date').
+
+    For a recurring master Google's `end` is only the *first* occurrence's end,
+    so we use the series end instead (None if the series is open-ended).
+    """
+    if event.get('recurrence'):
+        return _series_end_dt(event)
     val = (event.get('end') or {}).get('dateTime') or (event.get('end') or {}).get('date')
     if not val:
         return None
@@ -118,6 +158,21 @@ def is_self_organized(event):
     if not organizer:
         return True
     return organizer.get('self', False)
+
+
+def needs_mirror(event):
+    """True if a non-organized source event needs a standalone mirror.
+
+    No mirror is needed (it would be a duplicate on the shared calendar) when:
+    - the organizer is another source calendar: the bot adds the shared
+      calendar as an attendee from that side, and Google keeps it in sync; or
+    - the shared calendar is already an attendee of the event.
+    """
+    organizer = ((event.get('organizer') or {}).get('email') or '').lower()
+    if organizer and organizer in SOURCE_CALENDARS:
+        return False
+    shared = SHARED_CALENDAR_ID.lower()
+    return not any((a.get('email') or '').lower() == shared for a in event.get('attendees', []))
 
 
 def ensure_mirror(service, source_calendar_id, event):
@@ -291,8 +346,15 @@ def reconcile_mirrors(build_service):
             logger.info("🗑️ Source event cancelled; removed its shared-calendar mirror.")
             continue
 
+        if not needs_mirror(source_event):  # covered by a native invite -> mirror is a duplicate
+            _delete_mirror(source_service, record.get('mirror_id'))
+            del mirror_map[key]
+            changed = True
+            logger.info(f"🗑️ Source “{source_event.get('summary')}” is covered by a native invite; removed its duplicate mirror.")
+            continue
+
         end_dt = _end_dt(source_event)
-        if end_dt and end_dt < now - PRUNE_AFTER:  # stop tracking long-past events
+        if end_dt and end_dt < now - PRUNE_AFTER:  # stop tracking long-past events (never open-ended series)
             del mirror_map[key]
             changed = True
             continue

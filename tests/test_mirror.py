@@ -172,3 +172,76 @@ def test_apply_instance_exception_noop_when_series_not_mirrored():
         apply_instance_exception(service, 'cal@x.com', _exception(status='cancelled'))
     service.events().delete.assert_not_called()
     service.events().patch.assert_not_called()
+
+
+# --- series-aware pruning (#recurring mirrors were pruned on first poll) ---
+
+def _reconcile(source_event, mirror_map):
+    service = MagicMock()
+    service.events().get().execute.return_value = source_event
+    with patch.object(mirror, 'load_mirror_map', return_value=mirror_map), \
+         patch.object(mirror, 'save_mirror_map') as save:
+        reconcile_mirrors(lambda cal: service)
+    return service, save
+
+
+def test_end_dt_open_ended_series_is_none():
+    ev = {'end': {'dateTime': '2020-01-01T11:00:00Z'}, 'recurrence': ['RRULE:FREQ=WEEKLY;BYDAY=SA']}
+    assert mirror._end_dt(ev) is None
+
+
+def test_end_dt_bounded_series_uses_until():
+    ev = {'end': {'date': '2020-01-02'}, 'recurrence': ['RRULE:FREQ=WEEKLY;UNTIL=20261014;BYDAY=TH']}
+    assert mirror._end_dt(ev).date().isoformat() == '2026-10-15'  # UNTIL + 1 day pad
+
+
+def test_end_dt_count_series_is_none():
+    ev = {'end': {'date': '2020-01-02'}, 'recurrence': ['RRULE:FREQ=WEEKLY;COUNT=5']}
+    assert mirror._end_dt(ev) is None
+
+
+def test_reconcile_keeps_open_ended_series_whose_first_occurrence_is_past():
+    # First occurrence long past, but the series is still running: must stay tracked.
+    src = {
+        'id': 'evt1', 'status': 'confirmed', 'summary': 'Weekly',
+        'organizer': {'email': 'boss@example.com', 'self': False},
+        'start': {'dateTime': '2020-01-01T10:00:00Z'}, 'end': {'dateTime': '2020-01-01T11:00:00Z'},
+        'recurrence': ['RRULE:FREQ=WEEKLY'],
+    }
+    snap = _snapshot(src)
+    _, save = _reconcile(src, {'joeltimm@gmail.com::evt1': {'mirror_id': 'm1', 'snapshot': snap}})
+    save.assert_not_called()  # nothing pruned, nothing changed
+
+
+def test_reconcile_prunes_single_event_long_past():
+    src = {
+        'id': 'evt1', 'status': 'confirmed', 'summary': 'Old',
+        'organizer': {'email': 'boss@example.com', 'self': False},
+        'start': {'dateTime': '2020-01-01T10:00:00Z'}, 'end': {'dateTime': '2020-01-01T11:00:00Z'},
+    }
+    service, save = _reconcile(src, {'joeltimm@gmail.com::evt1': {'mirror_id': 'm1', 'snapshot': _snapshot(src)}})
+    service.events().delete.assert_not_called()  # mirror kept as history
+    assert save.call_args.args[0] == {}
+
+
+# --- needs_mirror (no duplicate for events covered by a native invite) ---
+
+def test_needs_mirror_true_for_external_organizer(event):
+    assert mirror.needs_mirror(event) is True
+
+
+def test_needs_mirror_false_when_organizer_is_a_source_calendar(event):
+    ev = dict(event, organizer={'email': 'tsouthworth@gmail.com', 'self': False})
+    assert mirror.needs_mirror(ev) is False
+
+
+def test_needs_mirror_false_when_shared_calendar_already_invited(event):
+    ev = dict(event, attendees=[{'email': SHARED_CALENDAR_ID, 'responseStatus': 'needsAction'}])
+    assert mirror.needs_mirror(ev) is False
+
+
+def test_reconcile_removes_mirror_when_source_now_covered_by_invite(event):
+    src = dict(event, status='confirmed', organizer={'email': 'tsouthworth@gmail.com', 'self': False})
+    service, save = _reconcile(src, {'joeltimm@gmail.com::evt1': {'mirror_id': 'm1', 'snapshot': _snapshot(src)}})
+    service.events().delete.assert_called_once()
+    assert save.call_args.args[0] == {}

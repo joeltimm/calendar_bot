@@ -181,3 +181,23 @@ def test_duplicates_and_deletes_gmail_event(mock_google_service, from_gmail_even
     
     mock_google_service.events().insert.assert_called_once()
     mock_google_service.events().delete.assert_called_once()
+
+
+def test_skips_mirror_when_organizer_is_other_source_calendar(mock_google_service, not_organized_event):
+    # Taylor organizes and invites Joel: the bot invites the shared calendar from
+    # Taylor's side, so mirroring from Joel's side would duplicate it.
+    not_organized_event['organizer'] = {'email': 'tsouthworth@gmail.com', 'self': False}
+    mock_google_service.events().get.return_value.execute.return_value = not_organized_event
+
+    with patch('utils.process_event.ensure_mirror') as mock_ensure, \
+         patch('utils.process_event.remove_mirror') as mock_remove:
+        handle_event(
+            service=mock_google_service,
+            calendar_id='primary',
+            event_id='invited_event_xyz',
+            success_counter=MagicMock(),
+        )
+
+    mock_ensure.assert_not_called()
+    mock_remove.assert_called_once()  # any stale duplicate mirror is dropped
+    mock_google_service.events().patch.assert_not_called()

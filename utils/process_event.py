@@ -18,6 +18,10 @@ PROCESSED_FILE = Path(PROCESSED_FILE_PATH_STR)
 # Event types that cannot carry attendees and aren't meaningful to clone/mirror;
 # attempting to add an attendee to these returns an API error, so we skip them.
 SKIP_EVENT_TYPES = ('outOfOffice', 'focusTime', 'workingLocation')
+# "Busy" blocks written by the n8n Calendar Busy Sync carry this description
+# prefix. They only exist to block time on the work/personal calendars; inviting
+# the shared calendar to them stacks yet another copy on top of the real event.
+CALSYNC_TAG = 'cal-sync|'
 
 
 def _user_declined(event):
@@ -55,6 +59,10 @@ def handle_event(service, calendar_id: str, event_id: str, success_counter, invi
     # (#5) Skip event types that can't have attendees / aren't meaningful to mirror.
     if event_type in SKIP_EVENT_TYPES:
         logger.info(f"⏭️ Skipping '{event_type}' event “{summary}” ({event_id}); not actionable.")
+        return
+
+    if (event.get('description') or '').startswith(CALSYNC_TAG):
+        logger.info(f"⏭️ Skipping cal-sync busy block “{summary}” ({event_id}).")
         return
 
     # (#7) Skip cancelled or declined events; drop any stale mirror for a declined one.

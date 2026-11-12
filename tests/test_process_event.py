@@ -126,6 +126,19 @@ def test_skips_special_event_type(mock_google_service):
     mock_google_service.events().insert.assert_not_called()
 
 
+def test_skips_calsync_busy_block(mock_google_service):
+    busy = {
+        'id': 'b1', 'summary': 'Busy', 'eventType': 'default',
+        'description': 'cal-sync|joel@teammerchant.com|abc123',
+        'organizer': {'email': 'joeltimm@gmail.com', 'self': True},
+        'start': {'dateTime': '2030-09-05T10:00:00Z'}, 'end': {'dateTime': '2030-09-05T11:00:00Z'},
+    }
+    mock_google_service.events().get.return_value.execute.return_value = busy
+    handle_event(service=mock_google_service, calendar_id='primary', event_id='b1', success_counter=MagicMock())
+    mock_google_service.events().patch.assert_not_called()
+    mock_google_service.events().insert.assert_not_called()
+
+
 def test_skips_cancelled_event(mock_google_service):
     cancelled = {
         'id': 'c1', 'summary': 'Gone', 'eventType': 'default', 'status': 'cancelled',
